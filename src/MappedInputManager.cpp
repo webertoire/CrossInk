@@ -114,3 +114,7 @@ int MappedInputManager::getPressedFrontButton() const {
   }
   return -1;
 }
+
+bool MappedInputManager::wasRawButtonPressed(const uint8_t buttonIndex) const { return gpio.wasPressed(buttonIndex); }
+
+bool MappedInputManager::wasRawButtonReleased(const uint8_t buttonIndex) const { return gpio.wasReleased(buttonIndex); }

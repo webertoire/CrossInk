@@ -24,6 +24,9 @@ class HomeActivity final : public Activity {
   size_t coverBufferSize = 0;              // Bytes allocated to coverBuffer
   int coverBufferSelectorIndex = -1;
   bool coverBufferStripSelected = false;
+  bool suppressFrontButtonReleaseActions = false;
+  bool homePopupOpen = false;
+  int homePopupIndex = 0;
   // Logical rect last passed to drawRecentBookCover. The cover snapshot only
   // needs to cover this region, not the entire framebuffer, so we cache the
   // tile instead of all 48 KB. Set in render() before the call.
@@ -59,6 +62,10 @@ class HomeActivity final : public Activity {
     if (idx == i) return HomeMenuItem::SETTINGS_MENU;
     return HomeMenuItem::NONE;
   }
+  void selectNextHomeItem(int menuCount);
+  void selectPreviousHomeItem(int menuCount);
+  void activateCurrentSelection();
+  void closeHomePopup();
   void onSelectBook(const std::string& path);
   void onFileBrowserOpen();
   void onRecentsOpen();

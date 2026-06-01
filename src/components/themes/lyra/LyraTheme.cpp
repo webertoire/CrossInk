@@ -974,7 +974,8 @@ void LyraTheme::drawCoverStripRecents(GfxRenderer& renderer, Rect rect, const st
     }
   };
 
-  auto drawCover = [&](int bookIndex, int x, int y, int w, int h, bool selectedCover) {
+  auto drawCover = [&](int bookIndex, int x, int y, int w, int h, bool selectedCover, int coverCornerRadius) {
+    const Color coverBackground = spec.drawPanel ? Color::LightGray : Color::White;
     bool hasCover = bookIndex >= 0 && bookIndex < bookCount && !recentBooks[bookIndex].coverBmpPath.empty();
     if (hasCover) {
       auto drawThumb = [&](int thumbHeight) {
@@ -993,6 +994,9 @@ void LyraTheme::drawCoverStripRecents(GfxRenderer& renderer, Rect rect, const st
             cropY = std::max(0.0f, 1.0f - bitmapAspect / targetAspect);
           }
           renderer.drawBitmap(bitmap, x, y, w, h, cropX, cropY);
+          if (coverCornerRadius > 0) {
+            renderer.maskRoundedRectOutsideCorners(x, y, w, h, coverCornerRadius, coverBackground);
+          }
           return true;
         } else {
           return false;
@@ -1009,12 +1013,23 @@ void LyraTheme::drawCoverStripRecents(GfxRenderer& renderer, Rect rect, const st
     }
 
     if (!hasCover) {
-      renderer.drawRect(x, y, w, h, true);
+      if (coverCornerRadius > 0) {
+        renderer.drawRoundedRect(x, y, w, h, 1, coverCornerRadius, true);
+      } else {
+        renderer.drawRect(x, y, w, h, true);
+      }
       renderer.fillRect(x, y + h / 3, w, 2 * h / 3, true);
       renderer.drawIcon(CoverIcon, x + std::max(4, (w - 32) / 2), y + 16, 32, 32);
+      if (coverCornerRadius > 0) {
+        renderer.maskRoundedRectOutsideCorners(x, y, w, h, coverCornerRadius, coverBackground);
+      }
     }
 
-    renderer.drawRect(x, y, w, h, true);
+    if (coverCornerRadius > 0) {
+      renderer.drawRoundedRect(x, y, w, h, 1, coverCornerRadius, true);
+    } else {
+      renderer.drawRect(x, y, w, h, true);
+    }
     if (selectedCover) {
       const int inactiveWidth =
           spec.inactiveSelectionLineWidth > 0 ? spec.inactiveSelectionLineWidth : spec.selectionLineWidth;
@@ -1047,7 +1062,7 @@ void LyraTheme::drawCoverStripRecents(GfxRenderer& renderer, Rect rect, const st
     y += slot.yOffset;
 
     const bool selectedCover = slot.selected && (slot.book != ThemeBookRef::Index || bookIndex == selected);
-    drawCover(bookIndex, x, y, w, h, selectedCover);
+    drawCover(bookIndex, x, y, w, h, selectedCover, slot.coverCornerRadius);
 
     if (slot.title.enabled) {
       const int maxWidth = std::max(40, w + 28);
@@ -1078,14 +1093,22 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
-  if (buttonMenu_ != nullptr && buttonMenu_->enabled) {
+  if (buttonMenu_ != nullptr) {
     const auto& spec = *buttonMenu_;
     const auto& m = metrics();
     const int panelWidth = spec.panelWidth > 0 ? std::min(spec.panelWidth, rect.width) : rect.width;
     const int panelX = rect.x + (rect.width - panelWidth) / 2;
     const int panelHeight = buttonCount * m.menuRowHeight + std::max(0, buttonCount - 1) * m.menuSpacing;
-    const int panelY =
-        spec.centerVertically && panelHeight < rect.height ? rect.y + (rect.height - panelHeight) / 2 : rect.y;
+    int panelY = rect.y;
+    if (spec.centerVertically) {
+      if (panelHeight < rect.height) {
+        panelY = rect.y + (rect.height - panelHeight) / 2;
+      } else {
+        // If the requested menu is taller than its slot, keep its bottom edge
+        // inside the slot so it expands upward instead of into button hints.
+        panelY = rect.y + rect.height - panelHeight;
+      }
+    }
 
     if (spec.drawPanel) {
       renderer.drawRoundedRect(panelX, panelY, panelWidth, panelHeight, 1, spec.panelCornerRadius, true);

@@ -36,6 +36,9 @@ class UITheme {
   static UIIcon getFileIcon(const std::string& filename);
   static int getStatusBarHeight();
   static int getProgressBarHeight();
+  const ThemeButtonMenuSpec* getHomeButtonMenu() const;
+  const ThemeHomeHardwareButtonsSpec* getHomeHardwareButtons() const;
+  const ThemeHomePopupMenuSpec* getHomePopupMenu() const;
 
  private:
   const ThemeMetrics* currentMetrics;
@@ -46,6 +49,8 @@ class UITheme {
   ThemeButtonHintsSpec currentSdButtonHints;
   ThemeTabBarSpec currentSdTabBar;
   ThemeHeaderSpec currentSdHeader;
+  ThemeHomeHardwareButtonsSpec currentSdHomeHardwareButtons;
+  ThemeHomePopupMenuSpec currentSdHomePopupMenu;
   std::string currentSdThemePath;
   ThemeIconMap currentSdIcons;
   std::unique_ptr<BaseTheme> currentTheme;

@@ -109,6 +109,58 @@ ThemeBookRef parseBookRef(const char* value) {
   return ThemeBookRef::Selected;
 }
 
+ThemeHomeButtonAction parseHomeButtonAction(const char* value) {
+  if (value == nullptr) return ThemeHomeButtonAction::Default;
+  if (strcmp(value, "open-home-popup") == 0) return ThemeHomeButtonAction::OpenHomePopup;
+  if (strcmp(value, "file-browser") == 0) return ThemeHomeButtonAction::FileBrowser;
+  if (strcmp(value, "recent-books") == 0) return ThemeHomeButtonAction::RecentBooks;
+  if (strcmp(value, "opds-browser") == 0) return ThemeHomeButtonAction::OpdsBrowser;
+  if (strcmp(value, "file-transfer") == 0) return ThemeHomeButtonAction::FileTransfer;
+  if (strcmp(value, "settings") == 0) return ThemeHomeButtonAction::Settings;
+  if (strcmp(value, "continue-reading") == 0) return ThemeHomeButtonAction::ContinueReading;
+  return ThemeHomeButtonAction::Default;
+}
+
+bool parseHomeButtonBindingSpec(JsonVariantConst value, ThemeHomeButtonBindingSpec& spec) {
+  if (value.isNull()) return false;
+
+  bool changed = false;
+  if (value.is<const char*>()) {
+    const auto action = parseHomeButtonAction(value.as<const char*>());
+    if (action != ThemeHomeButtonAction::Default) {
+      spec.action = action;
+      changed = true;
+    }
+    return changed;
+  }
+
+  JsonObjectConst obj = value.as<JsonObjectConst>();
+  if (obj.isNull()) return false;
+
+  const auto action = parseHomeButtonAction(obj["action"].as<const char*>());
+  if (action != ThemeHomeButtonAction::Default) {
+    spec.action = action;
+    changed = true;
+  }
+  const char* label = obj["label"].as<const char*>();
+  if (label != nullptr) {
+    spec.label = label;
+    changed = true;
+  }
+  return changed;
+}
+
+void parseHomeHardwareButtonsSpec(JsonObjectConst obj, ThemeHomeHardwareButtonsSpec& spec) {
+  if (obj.isNull()) return;
+
+  bool changed = false;
+  changed = parseHomeButtonBindingSpec(obj["back"], spec.back) || changed;
+  changed = parseHomeButtonBindingSpec(obj["confirm"], spec.confirm) || changed;
+  changed = parseHomeButtonBindingSpec(obj["left"], spec.left) || changed;
+  changed = parseHomeButtonBindingSpec(obj["right"], spec.right) || changed;
+  spec.enabled = spec.enabled || changed;
+}
+
 void parseTitleSpec(JsonObjectConst obj, ThemeTitleSpec& title) {
   if (obj.isNull()) return;
   title.enabled = obj["enabled"] | true;
@@ -145,6 +197,7 @@ void parseCoverSlot(JsonObjectConst obj, ThemeCoverSlotSpec& slot) {
   slot.y = parseSlotY(obj["y"].as<const char*>());
   slot.height = obj["height"] | slot.height;
   slot.widthPercent = obj["widthPercent"] | slot.widthPercent;
+  slot.coverCornerRadius = obj["coverCornerRadius"] | slot.coverCornerRadius;
   slot.xOffset = obj["xOffset"] | slot.xOffset;
   slot.yOffset = obj["yOffset"] | slot.yOffset;
   slot.selected = obj["selected"] | slot.selected;
@@ -213,7 +266,8 @@ void applyFontSpec(JsonObjectConst obj, int& fontId, bool& bold) {
 
 void parseButtonMenuSpec(JsonObjectConst obj, ThemeButtonMenuSpec& spec) {
   if (obj.isNull()) return;
-  spec.enabled = true;
+  spec.configured = true;
+  spec.showOnHome = obj["showOnHome"] | true;
   applyFontSpec(obj, spec.fontId, spec.bold);
   spec.centeredText = obj["centeredText"] | spec.centeredText;
   spec.centerVertically = obj["centerVertically"] | spec.centerVertically;
@@ -383,6 +437,32 @@ bool iconForKey(const char* key, UIIcon& out) {
   return true;
 }
 
+void parseHomePopupMenuSpec(JsonObjectConst obj, ThemeHomePopupMenuSpec& spec) {
+  if (obj.isNull()) return;
+
+  JsonArrayConst items = obj["items"].as<JsonArrayConst>();
+  if (items.isNull()) return;
+
+  spec.enabled = true;
+  spec.items.clear();
+  for (JsonObjectConst itemObj : items) {
+    ThemeHomePopupMenuItemSpec item;
+    item.action = parseHomeButtonAction(itemObj["action"].as<const char*>());
+    const char* label = itemObj["label"].as<const char*>();
+    if (label != nullptr) {
+      item.label = label;
+    }
+    UIIcon icon = UIIcon::None;
+    if (iconForKey(itemObj["icon"].as<const char*>(), icon)) {
+      item.icon = icon;
+      item.hasIcon = true;
+    }
+    if (item.action != ThemeHomeButtonAction::Default) {
+      spec.items.push_back(item);
+    }
+  }
+}
+
 void parseIconMap(JsonObjectConst obj, ThemeIconMap& icons) {
   if (obj.isNull()) return;
   for (JsonPairConst kv : obj) {
@@ -473,9 +553,16 @@ bool SdCardThemeRegistry::parseThemeJson(const char* themeDirPath, SdCardThemeIn
   parseTabBarSpec(deviceObj["components"]["tabBar"].as<JsonObjectConst>(), out.tabBar);
   parseHeaderSpec(doc["components"]["header"].as<JsonObjectConst>(), out.header);
   parseHeaderSpec(deviceObj["components"]["header"].as<JsonObjectConst>(), out.header);
+  parseHomeHardwareButtonsSpec(doc["components"]["homeButtons"]["hardware"].as<JsonObjectConst>(),
+                               out.homeHardwareButtons);
+  parseHomeHardwareButtonsSpec(deviceObj["components"]["homeButtons"]["hardware"].as<JsonObjectConst>(),
+                               out.homeHardwareButtons);
+  parseHomePopupMenuSpec(doc["components"]["homeButtons"]["popupMenu"].as<JsonObjectConst>(), out.homePopupMenu);
+  parseHomePopupMenuSpec(deviceObj["components"]["homeButtons"]["popupMenu"].as<JsonObjectConst>(),
+                         out.homePopupMenu);
   applyMetricOverrides(doc["metrics"].as<JsonObjectConst>(), out.metrics);
   applyMetricOverrides(deviceObj["metrics"].as<JsonObjectConst>(), out.metrics);
-  if ((out.buttonMenu.enabled && out.buttonMenu.showIcons) || (out.list.enabled && out.list.showIcons)) {
+  if ((out.buttonMenu.configured && out.buttonMenu.showIcons) || (out.list.enabled && out.list.showIcons)) {
     parseIconMap(doc["assets"]["icons"].as<JsonObjectConst>(), out.icons);
     parseIconMap(deviceObj["assets"]["icons"].as<JsonObjectConst>(), out.icons);
   }

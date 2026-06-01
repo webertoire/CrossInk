@@ -25,6 +25,8 @@ class MappedInputManager {
   Labels mapLabels(const char* back, const char* confirm, const char* previous, const char* next) const;
   // Returns the raw front button index that was pressed this frame (or -1 if none).
   int getPressedFrontButton() const;
+  bool wasRawButtonPressed(uint8_t buttonIndex) const;
+  bool wasRawButtonReleased(uint8_t buttonIndex) const;
 
  private:
   HalGPIO& gpio;

@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "id": "minimal",
+  "name": "Minimal",
+  "description": "A close SD-theme approximation of CrossInk's built-in Minimal theme with one large home cover, centered text-only menus",
+  "inherits": "lyra",
+  "requires": {
+    "crosspoint": {
+      "schema": 1,
+      "modules": [
+        "cover-strip"
+      ]
+    }
+  },
+  "metrics": {
+    "homeTopPadding": 80,
+    "homeCoverHeight": 525,
+    "homeCoverTileHeight": 690,
+    "homeRecentBooksCount": 1,
+    "homeContinueReadingInMenu": false,
+    "homeShowContinueReadingHeader": false,
+    "homeMenuTopOffset": 0,
+    "menuRowHeight": 64,
+    "menuSpacing": 0
+  },
+  "components": {
+    "homeRecents": {
+      "type": "cover-strip",
+      "maxBooks": 1,
+      "wrap": false,
+      "selectionLineWidth": 1,
+      "inactiveSelectionLineWidth": 1,
+      "selectionCornerRadius": 8,
+      "slots": [
+        {
+          "book": "selected",
+          "x": "center",
+          "y": "top",
+          "height": 525,
+          "widthPercent": 60,
+          "coverCornerRadius": 8,
+          "selected": false
+        }
+      ]
+    },
+    "homeMenu": {
+      "showOnHome": false,
+      "font": "ui12",
+      "style": "regular",
+      "centeredText": true,
+      "centerVertically": true,
+      "showIcons": false,
+      "panelWidth": 384,
+      "drawPanel": true,
+      "panelCornerRadius": 3,
+      "selectionStyle": "triangle",
+      "selectionInset": 30,
+      "selectedTextInverted": false
+    },
+    "header": {
+      "font": "ui12",
+      "style": "bold",
+      "centeredTitle": false,
+      "showDivider": false,
+      "titleOffsetY": 3,
+      "batteryOffsetY": 5
+    },
+    "buttonHints": {
+      "font": "small",
+      "style": "regular",
+      "buttonWidth": 80,
+      "smallButtonHeight": 15,
+      "cornerRadius": 6,
+      "fill": true,
+      "outline": true,
+      "drawEmpty": true,
+      "textOffsetY": 7
+    },
+    "homeButtons": {
+      "hardware": {
+        "back": {
+          "action": "open-home-popup",
+          "label": "Menu"
+        },
+        "confirm": {
+          "action": "file-browser",
+          "label": "Browse"
+        },
+        "left": {
+          "action": "settings",
+          "label": "Settings"
+        },
+        "right": {
+          "action": "continue-reading",
+          "label": "Read"
+        }
+      },
+      "popupMenu": {
+        "items": [
+          {
+            "action": "recent-books",
+            "icon": "recent"
+          },
+          {
+            "action": "opds-browser",
+            "icon": "library"
+          },
+          {
+            "action": "file-transfer",
+            "icon": "transfer"
+          }
+        ]
+      }
+    }
+  }
+}

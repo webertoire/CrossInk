@@ -12,6 +12,42 @@ struct SdThemeDeviceConstraints {
   std::string sideButtons;
 };
 
+enum class ThemeHomeButtonAction {
+  Default,
+  OpenHomePopup,
+  FileBrowser,
+  RecentBooks,
+  OpdsBrowser,
+  FileTransfer,
+  Settings,
+  ContinueReading
+};
+
+struct ThemeHomeButtonBindingSpec {
+  ThemeHomeButtonAction action = ThemeHomeButtonAction::Default;
+  std::string label;
+};
+
+struct ThemeHomeHardwareButtonsSpec {
+  bool enabled = false;
+  ThemeHomeButtonBindingSpec back;
+  ThemeHomeButtonBindingSpec confirm;
+  ThemeHomeButtonBindingSpec left;
+  ThemeHomeButtonBindingSpec right;
+};
+
+struct ThemeHomePopupMenuItemSpec {
+  ThemeHomeButtonAction action = ThemeHomeButtonAction::Default;
+  std::string label;
+  UIIcon icon = UIIcon::None;
+  bool hasIcon = false;
+};
+
+struct ThemeHomePopupMenuSpec {
+  bool enabled = false;
+  std::vector<ThemeHomePopupMenuItemSpec> items;
+};
+
 struct SdCardThemeInfo {
   std::string id;
   std::string name;
@@ -25,6 +61,8 @@ struct SdCardThemeInfo {
   ThemeButtonHintsSpec buttonHints;
   ThemeTabBarSpec tabBar;
   ThemeHeaderSpec header;
+  ThemeHomeHardwareButtonsSpec homeHardwareButtons;
+  ThemeHomePopupMenuSpec homePopupMenu;
   ThemeIconMap icons;
   SdThemeDeviceConstraints constraints;
 };

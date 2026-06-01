@@ -77,7 +77,63 @@ Top-level fields:
 - `assets.icons`: optional icon file map.
 - `devices`: optional per-device overrides keyed by `x3` or `x4`.
 - `requires`: optional metadata for other tooling. CrossPoint currently ignores it.
-- `extensions`: optional namespaced metadata for other firmware/apps. CrossPoint currently ignores it.
+- `extensions`: optional namespaced metadata for other firmware/apps. CrossPoint ignores it.
+
+Home-screen button behavior lives under `components.homeButtons`:
+
+```json
+"components": {
+  "homeButtons": {
+    "hardware": {
+      "back": {
+        "action": "open-home-popup",
+        "label": "Menu"
+      },
+      "confirm": {
+        "action": "file-browser",
+        "label": "Browse"
+      },
+      "left": {
+        "action": "settings",
+        "label": "Settings"
+      },
+      "right": {
+        "action": "continue-reading",
+        "label": "Read"
+      }
+    },
+    "popupMenu": {
+      "items": [
+        { "action": "recent-books", "icon": "recent" },
+        { "action": "opds-browser", "icon": "library" },
+        { "action": "file-transfer", "icon": "transfer" }
+      ]
+    }
+  }
+}
+```
+
+These currently apply only on the Home screen. Supported actions are:
+
+- `open-home-popup`
+- `file-browser`
+- `recent-books`
+- `opds-browser`
+- `file-transfer`
+- `settings`
+- `continue-reading`
+
+`components.homeButtons.hardware` pins actions and labels to the physical X3 front-button order `Back`, `Confirm`, `Left`, `Right` only while Home is active. This lets a theme keep a fixed Home layout such as `Menu / Browse / Settings / Read` without changing the user's button settings on other screens.
+
+If `label` is omitted, CrossPoint uses a built-in default label for the action when possible.
+
+`components.homeButtons.popupMenu.items` is optional and currently used only by `open-home-popup`. Each item supports:
+
+- `action`
+- `label`
+- `icon`
+
+Supported `icon` values are the same built-in keys used elsewhere in theme JSON, such as `folder`, `recent`, `library`, `transfer`, `settings`, and `book`.
 
 ## Device overrides
 
@@ -204,6 +260,7 @@ Example:
       "y": "top",
       "height": 280,
       "widthPercent": 62,
+      "coverCornerRadius": 8,
       "selected": true,
       "title": {
         "enabled": true,
@@ -232,6 +289,7 @@ Slot fields:
 - `y`: `top` or `center`.
 - `height`: requested thumbnail height. CrossPoint generates/cache-misses thumbnails at requested sizes.
 - `widthPercent`: cover width as a percent of the slot height.
+- `coverCornerRadius`: optional corner radius for the cover image and empty placeholder.
 - `xOffset`, `yOffset`: positional adjustments.
 - `selected`: whether this slot receives the active selection outline.
 - `title`: optional book title under the cover.
@@ -244,6 +302,7 @@ CrossPoint currently reads up to five cover slots.
 
 Supported fields:
 
+- `showOnHome`: set to `false` to suppress the built-in home menu entirely while still using `homeMenu` styling for popup menus.
 - `font`, `fontId`, `style`, `bold`
 - `centeredText`
 - `centerVertically`

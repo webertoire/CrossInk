@@ -21,6 +21,18 @@ UITheme::UITheme() {
   setTheme(themeType);
 }
 
+const ThemeButtonMenuSpec* UITheme::getHomeButtonMenu() const {
+  return currentSdButtonMenu.configured ? &currentSdButtonMenu : nullptr;
+}
+
+const ThemeHomeHardwareButtonsSpec* UITheme::getHomeHardwareButtons() const {
+  return currentSdHomeHardwareButtons.enabled ? &currentSdHomeHardwareButtons : nullptr;
+}
+
+const ThemeHomePopupMenuSpec* UITheme::getHomePopupMenu() const {
+  return currentSdHomePopupMenu.enabled ? &currentSdHomePopupMenu : nullptr;
+}
+
 void UITheme::refreshRegistry() { themeRegistry.discover(); }
 
 void UITheme::releaseSdThemeAssetMemory() {
@@ -73,6 +85,8 @@ void UITheme::reload() {
     currentSdButtonHints = themeInfo->buttonHints;
     currentSdTabBar = themeInfo->tabBar;
     currentSdHeader = themeInfo->header;
+    currentSdHomeHardwareButtons = themeInfo->homeHardwareButtons;
+    currentSdHomePopupMenu = themeInfo->homePopupMenu;
     currentSdThemePath = themeInfo->path;
     currentSdIcons = themeInfo->icons;
     const bool inheritsClassic = themeInfo->inherits == "classic";
@@ -84,7 +98,7 @@ void UITheme::reload() {
     }
     const ThemeHomeRecentsSpec* homeRecents =
         currentSdHomeRecents.type != ThemeHomeRecentsType::Default ? &currentSdHomeRecents : nullptr;
-    const ThemeButtonMenuSpec* buttonMenu = currentSdButtonMenu.enabled ? &currentSdButtonMenu : nullptr;
+    const ThemeButtonMenuSpec* buttonMenu = currentSdButtonMenu.configured ? &currentSdButtonMenu : nullptr;
     const ThemeListSpec* list = currentSdList.enabled ? &currentSdList : nullptr;
     const ThemeButtonHintsSpec* buttonHints = currentSdButtonHints.enabled ? &currentSdButtonHints : nullptr;
     const ThemeTabBarSpec* tabBar = currentSdTabBar.enabled ? &currentSdTabBar : nullptr;
@@ -139,6 +153,8 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   currentSdButtonHints = ThemeButtonHintsSpec{};
   currentSdTabBar = ThemeTabBarSpec{};
   currentSdHeader = ThemeHeaderSpec{};
+  currentSdHomeHardwareButtons = ThemeHomeHardwareButtonsSpec{};
+  currentSdHomePopupMenu = ThemeHomePopupMenuSpec{};
   currentSdThemePath.clear();
   currentSdIcons.clear();
   themeRegistry.clear();

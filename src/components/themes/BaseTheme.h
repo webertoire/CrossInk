@@ -121,6 +121,7 @@ struct ThemeCoverSlotSpec {
   ThemeSlotY y = ThemeSlotY::Top;
   int height = 300;
   int widthPercent = 62;
+  int coverCornerRadius = 0;
   int xOffset = 0;
   int yOffset = 0;
   bool selected = false;
@@ -141,7 +142,8 @@ struct ThemeHomeRecentsSpec {
 };
 
 struct ThemeButtonMenuSpec {
-  bool enabled = false;
+  bool configured = false;
+  bool showOnHome = true;
   int fontId = 12;
   bool bold = false;
   bool centeredText = false;
