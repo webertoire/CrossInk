@@ -558,8 +558,7 @@ bool SdCardThemeRegistry::parseThemeJson(const char* themeDirPath, SdCardThemeIn
   parseHomeHardwareButtonsSpec(deviceObj["components"]["homeButtons"]["hardware"].as<JsonObjectConst>(),
                                out.homeHardwareButtons);
   parseHomePopupMenuSpec(doc["components"]["homeButtons"]["popupMenu"].as<JsonObjectConst>(), out.homePopupMenu);
-  parseHomePopupMenuSpec(deviceObj["components"]["homeButtons"]["popupMenu"].as<JsonObjectConst>(),
-                         out.homePopupMenu);
+  parseHomePopupMenuSpec(deviceObj["components"]["homeButtons"]["popupMenu"].as<JsonObjectConst>(), out.homePopupMenu);
   applyMetricOverrides(doc["metrics"].as<JsonObjectConst>(), out.metrics);
   applyMetricOverrides(deviceObj["metrics"].as<JsonObjectConst>(), out.metrics);
   if ((out.buttonMenu.configured && out.buttonMenu.showIcons) || (out.list.enabled && out.list.showIcons)) {

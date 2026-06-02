@@ -149,8 +149,8 @@ UIIcon defaultHomePopupItemIcon(const ThemeHomeButtonAction action) {
   }
 }
 
-std::vector<ResolvedHomePopupItem> buildResolvedHomePopupItems(const ThemeHomePopupMenuSpec& spec, const bool hasOpdsServers,
-                                                               const bool hasRecentBooks) {
+std::vector<ResolvedHomePopupItem> buildResolvedHomePopupItems(const ThemeHomePopupMenuSpec& spec,
+                                                               const bool hasOpdsServers, const bool hasRecentBooks) {
   std::vector<ResolvedHomePopupItem> items;
   items.reserve(spec.items.size());
   for (const auto& itemSpec : spec.items) {
@@ -485,8 +485,7 @@ void HomeActivity::loop() {
       homePopupIndex = popupCount - 1;
     }
 
-    if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-        mappedInput.wasRawButtonPressed(HalGPIO::BTN_LEFT)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up) || mappedInput.wasRawButtonPressed(HalGPIO::BTN_LEFT)) {
       homePopupIndex = ButtonNavigator::previousIndex(homePopupIndex, popupCount);
       requestUpdate();
       return;
@@ -569,10 +568,13 @@ void HomeActivity::render(RenderLock&&) {
       if (homePopupIndex >= static_cast<int>(popupItems.size())) {
         homePopupIndex = static_cast<int>(popupItems.size()) - 1;
       }
+      Rect popupMenuRect{0, metrics.homeTopPadding, pageWidth, pageHeight - metrics.homeTopPadding};
+      if (homeButtonMenu != nullptr && homeButtonMenu->centerVertically) {
+        popupMenuRect = Rect{0, 0, pageWidth, std::max(0, pageHeight - metrics.buttonHintsHeight)};
+      }
       GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
       GUI.drawButtonMenu(
-          renderer, Rect{0, metrics.homeTopPadding, pageWidth, pageHeight - metrics.homeTopPadding},
-          static_cast<int>(popupItems.size()), homePopupIndex,
+          renderer, popupMenuRect, static_cast<int>(popupItems.size()), homePopupIndex,
           [&popupItems](int index) { return popupItems[index].label; },
           [&popupItems](int index) { return popupItems[index].icon; });
       GUI.drawButtonHints(renderer, tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -634,10 +636,11 @@ void HomeActivity::render(RenderLock&&) {
   if (homeButtonMenu == nullptr || homeButtonMenu->showOnHome) {
     const int menuTop = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
     const int menuHeight = std::max(0, pageHeight - menuTop - metrics.buttonHintsHeight - metrics.verticalSpacing);
-    GUI.drawButtonMenu(renderer, Rect{0, menuTop, pageWidth, menuHeight}, static_cast<int>(menuItems.size()),
-                       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
-                       [&menuItems](int index) { return std::string(menuItems[index]); },
-                       [&menuIcons](int index) { return menuIcons[index]; });
+    GUI.drawButtonMenu(
+        renderer, Rect{0, menuTop, pageWidth, menuHeight}, static_cast<int>(menuItems.size()),
+        metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
+        [&menuItems](int index) { return std::string(menuItems[index]); },
+        [&menuIcons](int index) { return menuIcons[index]; });
   }
 
   if (homeHardwareButtons != nullptr) {
@@ -652,8 +655,7 @@ void HomeActivity::render(RenderLock&&) {
       }
       return defaultHardwareButtonLabel(hardwareButton, binding.action, hasOpdsServers, !recentBooks.empty());
     };
-    GUI.drawButtonHints(renderer,
-                        labelForHardwareBinding(HalGPIO::BTN_BACK, homeHardwareButtons->back),
+    GUI.drawButtonHints(renderer, labelForHardwareBinding(HalGPIO::BTN_BACK, homeHardwareButtons->back),
                         labelForHardwareBinding(HalGPIO::BTN_CONFIRM, homeHardwareButtons->confirm),
                         labelForHardwareBinding(HalGPIO::BTN_LEFT, homeHardwareButtons->left),
                         labelForHardwareBinding(HalGPIO::BTN_RIGHT, homeHardwareButtons->right));
