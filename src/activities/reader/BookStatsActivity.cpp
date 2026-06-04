@@ -8,12 +8,14 @@
 BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                      const std::string& bookCachePath, const BookReadingStats& stats,
                                      const float progressPercent, const bool hasEstimatedTimeLeft,
-                                     const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats)
+                                     const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
+                                     const bool returnToHomeOnExit)
     : Activity("BookStats", renderer, mappedInput),
       bookTitle(title),
       bookCachePath(bookCachePath),
       stats(stats),
       globalStats(globalStats),
+      returnToHomeOnExit(returnToHomeOnExit),
       progressPercent(progressPercent),
       hasEstimatedTimeLeft(hasEstimatedTimeLeft),
       estimatedTimeLeftSeconds(estimatedTimeLeftSeconds) {}
@@ -22,7 +24,7 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
                                      const std::string& bookCachePath, const BookReadingStats& stats,
                                      const float progressPercent, const bool hasEstimatedTimeLeft,
                                      const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
-                                     const GlobalReadingStats& allDevicesStats)
+                                     const GlobalReadingStats& allDevicesStats, const bool returnToHomeOnExit)
     : Activity("BookStats", renderer, mappedInput),
       bookTitle(title),
       bookCachePath(bookCachePath),
@@ -30,6 +32,7 @@ BookStatsActivity::BookStatsActivity(GfxRenderer& renderer, MappedInputManager& 
       globalStats(globalStats),
       allDevicesStats(allDevicesStats),
       showAllDevicesStats(true),
+      returnToHomeOnExit(returnToHomeOnExit),
       progressPercent(progressPercent),
       hasEstimatedTimeLeft(hasEstimatedTimeLeft),
       estimatedTimeLeftSeconds(estimatedTimeLeftSeconds) {}
@@ -222,16 +225,29 @@ void BookStatsActivity::onExit() {
   Activity::onExit();
 }
 
+void BookStatsActivity::exitStatsActivity(const bool viaBack) {
+  if (viaBack) {
+    mappedInput.suppressNextBackRelease();
+  } else {
+    mappedInput.suppressNextConfirmRelease();
+  }
+
+  if (returnToHomeOnExit) {
+    onGoHome();
+    return;
+  }
+
+  finish();
+}
+
 void BookStatsActivity::loop() {
   if (usesNoRtcSingleScreenLayout()) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      mappedInput.suppressNextBackRelease();
-      finish();
+      exitStatsActivity(true);
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      mappedInput.suppressNextConfirmRelease();
-      finish();
+      exitStatsActivity(false);
       return;
     }
     return;
@@ -269,8 +285,7 @@ void BookStatsActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (page == Page::PerBook) {
-      mappedInput.suppressNextBackRelease();
-      finish();
+      exitStatsActivity(true);
     } else if (page == Page::ThisDevice) {
       page = Page::PerBook;
       requestUpdate();
@@ -282,8 +297,7 @@ void BookStatsActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    mappedInput.suppressNextConfirmRelease();
-    finish();
+    exitStatsActivity(false);
     return;
   }
 

@@ -17,6 +17,7 @@ class BookStatsActivity final : public Activity {
   GlobalReadingStats globalStats;
   GlobalReadingStats allDevicesStats;
   bool showAllDevicesStats = false;
+  bool returnToHomeOnExit = false;
   float progressPercent = -1.0f;
   bool hasEstimatedTimeLeft = false;
   uint32_t estimatedTimeLeftSeconds = 0;
@@ -35,16 +36,17 @@ class BookStatsActivity final : public Activity {
   void clearEditedDate(bool finishedField);
   bool shouldClearDateOnAdjust(const ReadingStatsDate& date, bool finishedField, int fieldIndex, int delta) const;
   void normalizeEditedDates(const bool editedFinishedField);
+  void exitStatsActivity(bool viaBack);
 
  public:
   BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                     const std::string& bookCachePath, const BookReadingStats& stats, float progressPercent,
-                    bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds,
-                    const GlobalReadingStats& globalStats);
+                    bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
+                    bool returnToHomeOnExit = false);
   BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                     const std::string& bookCachePath, const BookReadingStats& stats, float progressPercent,
                     bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
-                    const GlobalReadingStats& allDevicesStats);
+                    const GlobalReadingStats& allDevicesStats, bool returnToHomeOnExit = false);
 
   void onEnter() override;
   void onExit() override;

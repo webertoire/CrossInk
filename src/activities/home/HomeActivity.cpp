@@ -1668,25 +1668,26 @@ void HomeActivity::onReadingStatsOpen() {
   const std::string cachePath =
       FsHelpers::hasEpubExtension(bookPath) ? Epub::cachePathForFilePath(bookPath, "/.crosspoint") : std::string{};
   if (showAllDevicesStats) {
-    startActivityForResult(
-        std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, cachePath, currentBookStats,
-                                            currentBookProgressPercent, false, 0, globalStats, allDevicesGlobalStats),
-        [this](const ActivityResult& result) {
-          mappedInput.suppressNextConfirmRelease();
-          const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
-          if (statsResult && statsResult->changed) {
-            globalStats = GlobalReadingStats::load();
-            showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
-            allDevicesGlobalStats = showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
-            bookStatsCached = false;
-            updateHighlightedBookContext();
-          }
-          requestUpdate();
-        });
+    startActivityForResult(std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, cachePath,
+                                                               currentBookStats, currentBookProgressPercent, false, 0,
+                                                               globalStats, allDevicesGlobalStats, true),
+                           [this](const ActivityResult& result) {
+                             mappedInput.suppressNextConfirmRelease();
+                             const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
+                             if (statsResult && statsResult->changed) {
+                               globalStats = GlobalReadingStats::load();
+                               showAllDevicesStats = GlobalReadingStats::hasSyncedStats();
+                               allDevicesGlobalStats =
+                                   showAllDevicesStats ? GlobalReadingStats::loadAggregated(globalStats) : globalStats;
+                               bookStatsCached = false;
+                               updateHighlightedBookContext();
+                             }
+                             requestUpdate();
+                           });
   } else {
     startActivityForResult(
         std::make_unique<BookStatsActivity>(renderer, mappedInput, bookTitle, cachePath, currentBookStats,
-                                            currentBookProgressPercent, false, 0, globalStats),
+                                            currentBookProgressPercent, false, 0, globalStats, true),
         [this](const ActivityResult& result) {
           mappedInput.suppressNextConfirmRelease();
           const auto* statsResult = std::get_if<ReadingStatsResult>(&result.data);
