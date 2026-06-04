@@ -430,6 +430,8 @@ void SleepActivity::onEnter() {
       return renderReadingStatsSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_SLEEP):
       return renderMinimalSleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::MINIMAL_STATS_SLEEP):
+      return renderMinimalStatsSleepScreen();
     default:
       return renderDefaultSleepScreen();
   }
@@ -642,6 +644,23 @@ void SleepActivity::renderMinimalSleepScreen() const {
   const float progressPercent = RecentBookProgress::loadPercent(book);
   MinimalTheme theme;
   theme.drawSleepScreen(renderer, book, &bookStats, progressPercent);
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+}
+
+void SleepActivity::renderMinimalStatsSleepScreen() const {
+  const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
+  if (path.empty()) {
+    return renderDefaultSleepScreen();
+  }
+
+  RecentBook book = recentBookForPath(path);
+  book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path);
+
+  const BookReadingStats bookStats = loadBookStatsForPath(path);
+  const GlobalReadingStats globalStats = GlobalReadingStats::load();
+  const float progressPercent = RecentBookProgress::loadPercent(book);
+  MinimalTheme theme;
+  theme.drawStatsSleepScreen(renderer, book, &bookStats, &globalStats, progressPercent);
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 

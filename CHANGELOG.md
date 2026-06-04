@@ -6,6 +6,7 @@
 - Added the current date to the top-right Settings header on X3 devices with an RTC.
 - Added a File Browser folder action to use a selected folder for sleep images instead of only `/.sleep` or `/sleep`.
 - Added X3 Reading Stats pages for per-book, this-device, and all-synced-device views, including reading streaks, time-of-day/day-of-week reading-time charts, and editable start/finished book dates.
+- Added a `Minimal Stats` sleep screen option that reuses the Minimal layout and adds X3-only streak and reader-type footer stats.
 
 ### Changed
 - Moved EPUB silent next-chapter indexing to the second-to-last page so short final pages are less likely to expose visible indexing.
