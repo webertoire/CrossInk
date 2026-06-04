@@ -1,5 +1,7 @@
 #pragma once
 
+#include <HalClock.h>
+
 #include <string>
 
 #include "../Activity.h"
@@ -22,7 +24,8 @@ class BookStatsActivity final : public Activity {
   int selectedEditField = 0;
   bool didChangeStats = false;
 
-  bool hasEditableBook() const { return !bookCachePath.empty(); }
+  bool hasEditableBook() const { return !bookCachePath.empty() && halClock.isAvailable(); }
+  bool usesNoRtcSingleScreenLayout() const { return !halClock.isAvailable(); }
   void refreshAllDevicesStats();
   void saveStats();
   void cycleEditField();

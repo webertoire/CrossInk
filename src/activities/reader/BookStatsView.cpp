@@ -1,6 +1,7 @@
 #include "BookStatsView.h"
 
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -82,18 +83,43 @@ int sectionCardHeight(const StatsLayout& layout, const int rowCount) {
          (rowCount - 1) * rowStride;
 }
 
-int statsContentHeight(const StatsLayout& layout, const bool globalPage) {
+bool shouldShowRtcBasedStats() { return halClock.isAvailable(); }
+
+int noRtcCardBaseHeight(const StatsLayout& layout) { return layout.globalCardH; }
+
+int statsContentHeight(const StatsLayout& layout, const bool globalPage, const bool showRtcStats) {
   const int topCardH = globalPage ? layout.globalCardH : layout.topCardH;
+  if (!showRtcStats) {
+    return layout.headerHeight + layout.topGap + topCardH;
+  }
   const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
   const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
   return layout.headerHeight + layout.topGap + topCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
 }
 
-const StatsLayout& getStatsLayout(GfxRenderer& renderer, const bool globalPage, const bool showButtonHints) {
+int noRtcCombinedContentHeight(const StatsLayout& layout, const bool showAllDevicesStats) {
+  const int cardBaseH = noRtcCardBaseHeight(layout);
+  return layout.headerHeight + layout.topGap + cardBaseH + layout.cardGap + layout.globalCardH +
+         (showAllDevicesStats ? layout.cardGap + layout.globalCardH : 0);
+}
+
+const StatsLayout& getStatsLayout(GfxRenderer& renderer, const bool globalPage, const bool showButtonHints,
+                                  const bool showRtcStats) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int reserveBottom = showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0;
   const int availableHeight = renderer.getScreenHeight() - metrics.topPadding - reserveBottom;
-  if (statsContentHeight(kDefaultLayout, globalPage) <= availableHeight) {
+  if (statsContentHeight(kDefaultLayout, globalPage, showRtcStats) <= availableHeight) {
+    return kDefaultLayout;
+  }
+  return kCompactLayout;
+}
+
+const StatsLayout& getNoRtcCombinedLayout(GfxRenderer& renderer, const bool showButtonHints,
+                                          const bool showAllDevicesStats) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int reserveBottom = showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0;
+  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding - reserveBottom;
+  if (noRtcCombinedContentHeight(kDefaultLayout, showAllDevicesStats) <= availableHeight) {
     return kDefaultLayout;
   }
   return kCompactLayout;
@@ -261,9 +287,11 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
                     y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, visibleTitle.c_str(), true);
 
+  const bool showRtcStats = shouldShowRtcBasedStats();
   const int thirdW = w / 3;
   const int halfW = w / 2;
-  const int rowH = (h - layout.topCardTitleH) / 3;
+  const int rowCount = showRtcStats ? 3 : 2;
+  const int rowH = (h - layout.topCardTitleH) / rowCount;
   char buf[40];
 
   snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(stats.sessionCount));
@@ -295,6 +323,10 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   snprintf(buf, sizeof(buf), "%.1f", pagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
   drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
                tr(STR_STATS_PAGES_PER_MIN));
+
+  if (!showRtcStats) {
+    return;
+  }
 
   ReadingStatsDateTime today;
   const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
@@ -331,15 +363,16 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
                finished ? tr(STR_STATS_FINISHED_DATE) : tr(STR_STATS_EST_FINISH_DATE));
 }
 
-void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h,
+void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
                          const GlobalReadingStats& stats, const StatsLayout& layout) {
   renderer.drawRect(x, y, w, h);
   renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
+  const bool showRtcStats = shouldShowRtcBasedStats();
   drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
-                    y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, tr(STR_STATS_ALL_TIME),
-                    true);
+                    y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, title, true);
 
   const int thirdW = w / 3;
+  const int halfW = w / 2;
   const int rowH = (h - layout.topCardTitleH) / 2;
   char buf[40];
 
@@ -354,27 +387,32 @@ void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const 
 
   const uint32_t avgSecs = stats.totalSessions > 0 ? stats.totalReadingSeconds / stats.totalSessions : 0;
   BookReadingStats::formatDuration(avgSecs, buf, sizeof(buf));
-  drawStatCell(renderer, x, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_AVG_SESSION_LBL));
+  if (showRtcStats) {
+    drawStatCell(renderer, x, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_AVG_SESSION_LBL));
+  } else {
+    drawStatCell(renderer, x, halfW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_AVG_SESSION_LBL));
+  }
 
-  ReadingStatsDateTime today;
-  const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
-  const uint16_t currentStreak = hasToday ? stats.currentReadingStreak(&today.date) : 0;
-  if (currentStreak > 0) {
-    snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(currentStreak), dayCountText(currentStreak));
+  if (showRtcStats) {
+    ReadingStatsDateTime today;
+    const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
+    const uint16_t currentStreak = hasToday ? stats.currentReadingStreak(&today.date) : 0;
+    if (currentStreak > 0) {
+      snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(currentStreak), dayCountText(currentStreak));
+    } else {
+      snprintf(buf, sizeof(buf), "-");
+    }
+    drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
+                 tr(STR_STATS_READING_STREAK_LBL));
+  }
+
+  if (stats.completedBooks > 0) {
+    snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(stats.completedBooks));
   } else {
     snprintf(buf, sizeof(buf), "-");
   }
-  drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
-               tr(STR_STATS_READING_STREAK_LBL));
-
-  const uint16_t longestStreak = stats.displayLongestReadingStreak();
-  if (longestStreak > 0) {
-    snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(longestStreak), dayCountText(longestStreak));
-  } else {
-    snprintf(buf, sizeof(buf), "-");
-  }
-  drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
-               tr(STR_STATS_LONGEST_STREAK_LBL));
+  drawStatCell(renderer, showRtcStats ? x + thirdW * 2 : x + halfW, showRtcStats ? thirdW : halfW,
+               y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_COMPLETED_LBL));
 }
 
 void drawDateField(GfxRenderer& renderer, const int x, const int y, const int w, const char* text,
@@ -396,40 +434,51 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
   renderer.clearScreen();
   drawHeaderTitle(renderer, tr(STR_READING_STATS));
 
+  const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto& layout = getStatsLayout(renderer, false, showButtonHints);
+  const auto& layout = getStatsLayout(renderer, false, showButtonHints, showRtcStats);
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
-  const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
-  const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
   const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
                               (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
-  const int compactContentHeight = std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap +
-                                   layout.topCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
-  const int extraHeight = std::max(0, availableHeight - compactContentHeight);
-  const int extraTopCardHeight = std::min(extraHeight, 84);
-  const int remainingExtraHeight = extraHeight - extraTopCardHeight;
-  const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
-  const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
-  const int topCardH = layout.topCardH + extraTopCardHeight;
-  const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
-  const int dayOfWeekCardH = dayOfWeekH + dayOfWeekExtraHeight;
+  int topCardH = layout.topCardH;
   int y = metrics.topPadding + std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap;
 
-  drawPerBookStatsCard(renderer, cardX, y, cardW, topCardH, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
-                       estimatedTimeLeftSeconds, layout);
-  y += topCardH + layout.cardGap;
+  if (showRtcStats) {
+    const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
+    const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
+    const int compactContentHeight = std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap +
+                                     layout.topCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
+    const int extraHeight = std::max(0, availableHeight - compactContentHeight);
+    const int extraTopCardHeight = std::min(extraHeight, 84);
+    const int remainingExtraHeight = extraHeight - extraTopCardHeight;
+    const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
+    const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
+    const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
+    const int dayOfWeekCardH = dayOfWeekH + dayOfWeekExtraHeight;
+    topCardH += extraTopCardHeight;
 
-  drawSectionCard(renderer, cardX, y, cardW, timeOfDayCardH, tr(STR_STATS_TIME_OF_DAY), layout);
-  drawHorizontalBars(renderer, cardX, y, cardW, timeOfDayCardH, stats.timeOfDaySeconds, TIME_BUCKET_LABELS, layout);
-  y += timeOfDayCardH + layout.cardGap;
+    drawPerBookStatsCard(renderer, cardX, y, cardW, topCardH, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
+                         estimatedTimeLeftSeconds, layout);
+    y += topCardH + layout.cardGap;
 
-  drawSectionCard(renderer, cardX, y, cardW, dayOfWeekCardH, tr(STR_STATS_DAY_OF_WEEK), layout);
-  drawHorizontalBars(renderer, cardX, y, cardW, dayOfWeekCardH, stats.dayOfWeekSeconds, DAY_LABELS, layout);
+    drawSectionCard(renderer, cardX, y, cardW, timeOfDayCardH, tr(STR_STATS_TIME_OF_DAY), layout);
+    drawHorizontalBars(renderer, cardX, y, cardW, timeOfDayCardH, stats.timeOfDaySeconds, TIME_BUCKET_LABELS, layout);
+    y += timeOfDayCardH + layout.cardGap;
+
+    drawSectionCard(renderer, cardX, y, cardW, dayOfWeekCardH, tr(STR_STATS_DAY_OF_WEEK), layout);
+    drawHorizontalBars(renderer, cardX, y, cardW, dayOfWeekCardH, stats.dayOfWeekSeconds, DAY_LABELS, layout);
+  } else {
+    const int compactContentHeight =
+        std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap + layout.topCardH;
+    topCardH += std::max(0, availableHeight - compactContentHeight);
+    drawPerBookStatsCard(renderer, cardX, y, cardW, topCardH, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
+                         estimatedTimeLeftSeconds, layout);
+  }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels("", tr(STR_EXIT), showEditButton ? tr(STR_EDIT) : "",
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), "", showEditButton ? tr(STR_EDIT) : "",
                                                showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
@@ -440,39 +489,96 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   renderer.clearScreen();
   drawHeaderTitle(renderer, screenTitle);
 
+  const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto& layout = getStatsLayout(renderer, true, showButtonHints);
+  const auto& layout = getStatsLayout(renderer, true, showButtonHints, showRtcStats);
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
-  const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
-  const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
   const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
                               (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
-  const int compactContentHeight = std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap +
-                                   layout.globalCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
-  const int extraHeight = std::max(0, availableHeight - compactContentHeight);
-  const int extraTopCardHeight = std::min(extraHeight, 48);
-  const int remainingExtraHeight = extraHeight - extraTopCardHeight;
-  const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
-  const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
-  const int globalCardH = layout.globalCardH + extraTopCardHeight;
-  const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
-  const int dayOfWeekCardH = dayOfWeekH + dayOfWeekExtraHeight;
+  int globalCardH = layout.globalCardH;
   int y = metrics.topPadding + std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap;
 
-  drawGlobalStatsCard(renderer, cardX, y, cardW, globalCardH, stats, layout);
-  y += globalCardH + layout.cardGap;
+  if (showRtcStats) {
+    const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
+    const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
+    const int compactContentHeight = std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap +
+                                     layout.globalCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
+    const int extraHeight = std::max(0, availableHeight - compactContentHeight);
+    const int extraTopCardHeight = std::min(extraHeight, 48);
+    const int remainingExtraHeight = extraHeight - extraTopCardHeight;
+    const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
+    const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
+    const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
+    const int dayOfWeekCardH = dayOfWeekH + dayOfWeekExtraHeight;
+    globalCardH += extraTopCardHeight;
 
-  drawSectionCard(renderer, cardX, y, cardW, timeOfDayCardH, tr(STR_STATS_TIME_OF_DAY), layout);
-  drawHorizontalBars(renderer, cardX, y, cardW, timeOfDayCardH, stats.timeOfDaySeconds, TIME_BUCKET_LABELS, layout);
-  y += timeOfDayCardH + layout.cardGap;
+    drawGlobalStatsCard(renderer, cardX, y, cardW, globalCardH, tr(STR_STATS_ALL_TIME), stats, layout);
+    y += globalCardH + layout.cardGap;
 
-  drawSectionCard(renderer, cardX, y, cardW, dayOfWeekCardH, tr(STR_STATS_DAY_OF_WEEK), layout);
-  drawHorizontalBars(renderer, cardX, y, cardW, dayOfWeekCardH, stats.dayOfWeekSeconds, DAY_LABELS, layout);
+    drawSectionCard(renderer, cardX, y, cardW, timeOfDayCardH, tr(STR_STATS_TIME_OF_DAY), layout);
+    drawHorizontalBars(renderer, cardX, y, cardW, timeOfDayCardH, stats.timeOfDaySeconds, TIME_BUCKET_LABELS, layout);
+    y += timeOfDayCardH + layout.cardGap;
+
+    drawSectionCard(renderer, cardX, y, cardW, dayOfWeekCardH, tr(STR_STATS_DAY_OF_WEEK), layout);
+    drawHorizontalBars(renderer, cardX, y, cardW, dayOfWeekCardH, stats.dayOfWeekSeconds, DAY_LABELS, layout);
+  } else {
+    const int compactContentHeight =
+        std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap + layout.globalCardH;
+    globalCardH += std::max(0, availableHeight - compactContentHeight);
+    drawGlobalStatsCard(renderer, cardX, y, cardW, globalCardH, tr(STR_STATS_ALL_TIME), stats, layout);
+  }
 
   if (showButtonHints && mappedInput) {
     const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_EXIT), "", showMoreButton ? tr(STR_MORE) : "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput,
+                                  const std::string& bookTitle, const BookReadingStats& bookStats,
+                                  const float progressPercent, const bool hasEstimatedTimeLeft,
+                                  const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& deviceStats,
+                                  const GlobalReadingStats* allDevicesStats, const bool showButtonHints) {
+  renderer.clearScreen();
+  drawHeaderTitle(renderer, tr(STR_READING_STATS));
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto& layout = getNoRtcCombinedLayout(renderer, showButtonHints, allDevicesStats != nullptr);
+  const int screenW = renderer.getScreenWidth();
+  const int cardX = metrics.contentSidePadding;
+  const int cardW = screenW - metrics.contentSidePadding * 2;
+  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
+                              (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+  const int compactContentHeight = noRtcCombinedContentHeight(layout, allDevicesStats != nullptr);
+  const int extraHeight = std::max(0, availableHeight - compactContentHeight);
+  const int visibleCardCount = allDevicesStats ? 3 : 2;
+  const int extraPerCard = visibleCardCount > 0 ? extraHeight / visibleCardCount : 0;
+  const int extraRemainder = visibleCardCount > 0 ? extraHeight % visibleCardCount : 0;
+  const int perBookExtraHeight = extraPerCard + (extraRemainder > 0 ? 1 : 0);
+  const int deviceExtraHeight = extraPerCard + (extraRemainder > 1 ? 1 : 0);
+  const int allDevicesExtraHeight = allDevicesStats ? extraPerCard : 0;
+  const int perBookCardH = noRtcCardBaseHeight(layout) + perBookExtraHeight;
+  const int deviceCardH = layout.globalCardH + deviceExtraHeight;
+  const int allDevicesCardH = layout.globalCardH + allDevicesExtraHeight;
+
+  int y = metrics.topPadding + std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap;
+  drawPerBookStatsCard(renderer, cardX, y, cardW, perBookCardH, bookTitle, bookStats, progressPercent,
+                       hasEstimatedTimeLeft, estimatedTimeLeftSeconds, layout);
+  y += perBookCardH + layout.cardGap;
+
+  drawGlobalStatsCard(renderer, cardX, y, cardW, deviceCardH, tr(STR_STATS_THIS_DEVICE_SCREEN), deviceStats, layout);
+  y += deviceCardH;
+
+  if (allDevicesStats) {
+    y += layout.cardGap;
+    drawGlobalStatsCard(renderer, cardX, y, cardW, allDevicesCardH, tr(STR_STATS_ALL_DEVICES_SCREEN), *allDevicesStats,
+                        layout);
+  }
+
+  if (showButtonHints && mappedInput) {
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }

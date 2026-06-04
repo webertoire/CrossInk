@@ -223,6 +223,15 @@ void BookStatsActivity::onExit() {
 }
 
 void BookStatsActivity::loop() {
+  if (usesNoRtcSingleScreenLayout()) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      finish();
+      return;
+    }
+    return;
+  }
+
   const bool editShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
                                    mappedInput.wasPressed(MappedInputManager::Button::Left);
   const bool moreShortcutPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
@@ -254,7 +263,9 @@ void BookStatsActivity::loop() {
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    if (page == Page::ThisDevice) {
+    if (page == Page::PerBook) {
+      finish();
+    } else if (page == Page::ThisDevice) {
       page = Page::PerBook;
       requestUpdate();
     } else if (page == Page::AllDevices) {
@@ -290,6 +301,14 @@ void BookStatsActivity::loop() {
 }
 
 void BookStatsActivity::render(RenderLock&&) {
+  if (usesNoRtcSingleScreenLayout()) {
+    renderNoRtcCombinedStatsPage(renderer, &mappedInput, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
+                                 estimatedTimeLeftSeconds, globalStats,
+                                 showAllDevicesStats ? &allDevicesStats : nullptr, true);
+    renderer.displayBuffer();
+    return;
+  }
+
   switch (page) {
     case Page::PerBook:
       renderPerBookStatsPage(renderer, &mappedInput, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
