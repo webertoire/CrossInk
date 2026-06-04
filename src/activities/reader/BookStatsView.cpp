@@ -14,6 +14,8 @@
 
 namespace {
 constexpr int kStatsButtonHintTopGap = 10;
+constexpr int kStandaloneNoRtcMaxTopCardHeightDivisor = 2;
+constexpr int kStandaloneNoRtcMaxVerticalOffset = 32;
 
 struct StatsLayout {
   int headerHeight;
@@ -106,11 +108,15 @@ int noRtcCombinedContentHeight(const StatsLayout& layout, const bool showAllDevi
          (showAllDevicesStats ? layout.cardGap + layout.globalCardH : 0);
 }
 
+int statsBottomInset(const ThemeMetrics& metrics, const bool showButtonHints) {
+  return metrics.verticalSpacing + (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+}
+
 const StatsLayout& getStatsLayout(GfxRenderer& renderer, const bool globalPage, const bool showButtonHints,
                                   const bool showRtcStats) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int reserveBottom = showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0;
-  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding - reserveBottom;
+  const int availableHeight =
+      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
   if (statsContentHeight(kDefaultLayout, globalPage, showRtcStats) <= availableHeight) {
     return kDefaultLayout;
   }
@@ -120,8 +126,8 @@ const StatsLayout& getStatsLayout(GfxRenderer& renderer, const bool globalPage, 
 const StatsLayout& getNoRtcCombinedLayout(GfxRenderer& renderer, const bool showButtonHints,
                                           const bool showAllDevicesStats) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int reserveBottom = showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0;
-  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding - reserveBottom;
+  const int availableHeight =
+      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
   if (noRtcCombinedContentHeight(kDefaultLayout, showAllDevicesStats) <= availableHeight) {
     return kDefaultLayout;
   }
@@ -442,8 +448,8 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
-  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
-                              (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+  const int availableHeight =
+      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
   int topCardH = layout.topCardH;
   int y = metrics.topPadding + std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap;
 
@@ -474,7 +480,19 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
   } else {
     const int compactContentHeight =
         std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap + layout.topCardH;
-    topCardH += std::max(0, availableHeight - compactContentHeight);
+    const int extraHeight = std::max(0, availableHeight - compactContentHeight);
+    if (showButtonHints) {
+      topCardH += extraHeight;
+    } else {
+      // The sleep-screen variant has no footer controls, so on tall portrait displays the
+      // single card can balloon and create huge internal gaps between the two stat rows.
+      // Cap the card growth and spend the rest as outer margin instead.
+      const int maxStandaloneCardHeight =
+          std::max(layout.topCardH, renderer.getScreenHeight() / kStandaloneNoRtcMaxTopCardHeightDivisor);
+      topCardH = std::min(layout.topCardH + extraHeight, maxStandaloneCardHeight);
+      const int unusedExtraHeight = extraHeight - (topCardH - layout.topCardH);
+      y += std::min(unusedExtraHeight / 3, kStandaloneNoRtcMaxVerticalOffset);
+    }
     drawPerBookStatsCard(renderer, cardX, y, cardW, topCardH, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
                          estimatedTimeLeftSeconds, layout);
   }
@@ -496,8 +514,8 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
-  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
-                              (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+  const int availableHeight =
+      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
   int globalCardH = layout.globalCardH;
   int y = metrics.topPadding + std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap;
 
@@ -549,8 +567,8 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
-  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
-                              (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+  const int availableHeight =
+      renderer.getScreenHeight() - metrics.topPadding - statsBottomInset(metrics, showButtonHints);
   const int compactContentHeight = noRtcCombinedContentHeight(layout, allDevicesStats != nullptr);
   const int extraHeight = std::max(0, availableHeight - compactContentHeight);
   const int visibleCardCount = allDevicesStats ? 3 : 2;

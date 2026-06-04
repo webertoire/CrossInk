@@ -3,6 +3,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <PNGdec.h>
@@ -603,16 +604,27 @@ void SleepActivity::renderCoverSleepScreen() const {
 void SleepActivity::renderReadingStatsSleepScreen() const {
   BookReadingStats bookStats;
   std::string bookTitle = tr(STR_READING_STATS);
+  float progressPercent = -1.0f;
 
-  const std::string& path = APP_STATE.openEpubPath;
+  const std::string& path = currentBookPath.empty() ? APP_STATE.openEpubPath : currentBookPath;
   if (!path.empty()) {
     const std::string recentTitle = recentTitleForPath(path);
     bookTitle = recentTitle.empty() ? filenameFromPath(path) : recentTitle;
 
     bookStats = loadBookStatsForPath(path);
+    progressPercent = RecentBookProgress::loadPercent(recentBookForPath(path));
   }
 
-  renderPerBookStatsPage(renderer, nullptr, bookTitle, bookStats, -1.0f, false, 0, false, false, false);
+  if (!halClock.isAvailable()) {
+    const GlobalReadingStats deviceStats = GlobalReadingStats::load();
+    const bool hasSyncedStats = GlobalReadingStats::hasSyncedStats();
+    const GlobalReadingStats allDevicesStats =
+        hasSyncedStats ? GlobalReadingStats::loadAggregated(deviceStats) : GlobalReadingStats{};
+    renderNoRtcCombinedStatsPage(renderer, nullptr, bookTitle, bookStats, progressPercent, false, 0, deviceStats,
+                                 hasSyncedStats ? &allDevicesStats : nullptr, false);
+  } else {
+    renderPerBookStatsPage(renderer, nullptr, bookTitle, bookStats, progressPercent, false, 0, false, false, false);
+  }
   renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
 }
 
