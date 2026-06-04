@@ -133,6 +133,35 @@ bool fallbackEstimatedTimeLeft(const BookReadingStats& stats, const float progre
   return seconds > 0;
 }
 
+bool estimateFinishDateFromDailyPace(const BookReadingStats& stats, const ReadingStatsDateTime& today,
+                                     const uint32_t estimatedReadingSeconds, ReadingStatsDate& outDate) {
+  outDate = {};
+  if (!today.isValid() || !stats.startDate.isValid() || estimatedReadingSeconds == 0 ||
+      stats.totalReadingSeconds == 0) {
+    return false;
+  }
+
+  const uint16_t readingDays = readingSpanDaysInclusive(stats.startDate, today.date);
+  if (readingDays == 0) {
+    return false;
+  }
+
+  // Convert remaining reading time into calendar time using the book's average reading seconds per calendar day.
+  const uint64_t estimatedCalendarSeconds =
+      (static_cast<uint64_t>(estimatedReadingSeconds) * static_cast<uint64_t>(readingDays) * 86400ULL +
+       static_cast<uint64_t>(stats.totalReadingSeconds) / 2ULL) /
+      static_cast<uint64_t>(stats.totalReadingSeconds);
+  if (estimatedCalendarSeconds == 0) {
+    return false;
+  }
+
+  ReadingStatsDateTime estimatedFinish = today;
+  addSecondsToReadingStatsDateTime(estimatedFinish,
+                                   static_cast<uint32_t>(std::min<uint64_t>(estimatedCalendarSeconds, UINT32_MAX)));
+  outDate = estimatedFinish.date;
+  return outDate.isValid();
+}
+
 float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadingSeconds) {
   if (totalReadingSeconds <= 60) {
     return 0.0f;
@@ -292,10 +321,12 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   if (finished) {
     finishDisplayDate = stats.finishedDate;
   } else if (hasToday && (hasEstimatedTimeLeft || hasFallbackEstimate)) {
-    ReadingStatsDateTime estimatedFinish = today;
-    addSecondsToReadingStatsDateTime(estimatedFinish,
-                                     hasEstimatedTimeLeft ? estimatedTimeLeftSeconds : fallbackEstimateSeconds);
-    finishDisplayDate = estimatedFinish.date;
+    const uint32_t remainingReadingSeconds = hasEstimatedTimeLeft ? estimatedTimeLeftSeconds : fallbackEstimateSeconds;
+    if (!estimateFinishDateFromDailyPace(stats, today, remainingReadingSeconds, finishDisplayDate)) {
+      ReadingStatsDateTime estimatedFinish = today;
+      addSecondsToReadingStatsDateTime(estimatedFinish, remainingReadingSeconds);
+      finishDisplayDate = estimatedFinish.date;
+    }
   }
   formatReadingStatsShortDate(finishDisplayDate, buf, sizeof(buf));
   drawStatCell(renderer, x + halfW, halfW, y + layout.topCardTitleH + rowH * 2, rowH, buf,
