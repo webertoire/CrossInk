@@ -17,6 +17,7 @@ constexpr int kStatsButtonHintTopGap = 10;
 
 struct StatsLayout {
   int headerHeight;
+  int headerDrawHeight;
   int topGap;
   int cardGap;
   int topCardTitleH;
@@ -33,9 +34,10 @@ struct StatsLayout {
 };
 
 constexpr StatsLayout kDefaultLayout = {
-    .headerHeight = 84,
-    .topGap = 16,
-    .cardGap = 16,
+    .headerHeight = 78,
+    .headerDrawHeight = 67,
+    .topGap = 8,
+    .cardGap = 26,
     .topCardTitleH = 36,
     .topCardH = 214,
     .globalCardH = 154,
@@ -50,7 +52,8 @@ constexpr StatsLayout kDefaultLayout = {
 };
 
 constexpr StatsLayout kCompactLayout = {
-    .headerHeight = 62,
+    .headerHeight = 67,
+    .headerDrawHeight = 67,
     .topGap = 6,
     .cardGap = 8,
     .topCardTitleH = 30,
@@ -193,14 +196,14 @@ float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadin
   return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
 }
 
-void drawHeaderTitle(GfxRenderer& renderer, const char* title) {
+void drawHeaderTitle(GfxRenderer& renderer, const char* title, const int headerDrawHeight = 67) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
-  const int headerHeight = 62;
   constexpr int titleLiftPx = 5;
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, screenWidth, std::min(metrics.headerHeight, headerHeight)}, "");
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, screenWidth, std::min(metrics.headerHeight, headerDrawHeight)},
+                 "");
 
-  const int visibleHeaderHeight = std::min(metrics.headerHeight, headerHeight);
+  const int visibleHeaderHeight = std::min(metrics.headerHeight, headerDrawHeight);
   const int availableH = visibleHeaderHeight - metrics.batteryBarHeight;
   const int titleX = metrics.contentSidePadding;
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
@@ -432,11 +435,10 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
                             const uint32_t estimatedTimeLeftSeconds, const bool showButtonHints,
                             const bool showEditButton, const bool showMoreButton) {
   renderer.clearScreen();
-  drawHeaderTitle(renderer, tr(STR_READING_STATS));
-
   const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& layout = getStatsLayout(renderer, false, showButtonHints, showRtcStats);
+  drawHeaderTitle(renderer, tr(STR_READING_STATS), layout.headerDrawHeight);
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
@@ -487,11 +489,10 @@ void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* map
 void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const char* screenTitle,
                            const GlobalReadingStats& stats, const bool showButtonHints, const bool showMoreButton) {
   renderer.clearScreen();
-  drawHeaderTitle(renderer, screenTitle);
-
   const bool showRtcStats = shouldShowRtcBasedStats();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& layout = getStatsLayout(renderer, true, showButtonHints, showRtcStats);
+  drawHeaderTitle(renderer, screenTitle, layout.headerDrawHeight);
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;
@@ -531,7 +532,7 @@ void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mapp
   }
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_EXIT), "", showMoreButton ? tr(STR_MORE) : "");
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_HOME), "", showMoreButton ? tr(STR_MORE) : "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
@@ -542,10 +543,9 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
                                   const uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& deviceStats,
                                   const GlobalReadingStats* allDevicesStats, const bool showButtonHints) {
   renderer.clearScreen();
-  drawHeaderTitle(renderer, tr(STR_READING_STATS));
-
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& layout = getNoRtcCombinedLayout(renderer, showButtonHints, allDevicesStats != nullptr);
+  drawHeaderTitle(renderer, tr(STR_READING_STATS), layout.headerDrawHeight);
   const int screenW = renderer.getScreenWidth();
   const int cardX = metrics.contentSidePadding;
   const int cardW = screenW - metrics.contentSidePadding * 2;

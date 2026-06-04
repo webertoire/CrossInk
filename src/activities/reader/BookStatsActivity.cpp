@@ -224,8 +224,13 @@ void BookStatsActivity::onExit() {
 
 void BookStatsActivity::loop() {
   if (usesNoRtcSingleScreenLayout()) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      mappedInput.suppressNextBackRelease();
+      finish();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      mappedInput.suppressNextConfirmRelease();
       finish();
       return;
     }
@@ -238,13 +243,13 @@ void BookStatsActivity::loop() {
                                    mappedInput.wasPressed(MappedInputManager::Button::Right);
 
   if (page == Page::EditDates) {
-    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       saveStats();
       page = Page::PerBook;
       requestUpdate();
       return;
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       cycleEditField();
       requestUpdate();
       return;
@@ -262,8 +267,9 @@ void BookStatsActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (page == Page::PerBook) {
+      mappedInput.suppressNextBackRelease();
       finish();
     } else if (page == Page::ThisDevice) {
       page = Page::PerBook;
@@ -275,7 +281,8 @@ void BookStatsActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    mappedInput.suppressNextConfirmRelease();
     finish();
     return;
   }
