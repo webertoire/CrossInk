@@ -3,181 +3,514 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+#include <array>
+#include <cstdio>
+
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-void renderBookStatsView(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
-                         const BookReadingStats& stats, const GlobalReadingStats& globalStats,
-                         const GlobalReadingStats* allDevicesStats, bool showButtonHints) {
-  renderer.clearScreen();
+namespace {
+constexpr int kStatsButtonHintTopGap = 10;
 
+struct StatsLayout {
+  int headerHeight;
+  int topGap;
+  int cardGap;
+  int topCardTitleH;
+  int topCardH;
+  int globalCardH;
+  int sectionTitleH;
+  int sectionTitleFontId;
+  int chartLabelFontId;
+  int chartLabelW;
+  int barH;
+  int barGap;
+  int chartTopPadding;
+  int chartBottomPadding;
+};
+
+constexpr StatsLayout kDefaultLayout = {
+    .headerHeight = 84,
+    .topGap = 16,
+    .cardGap = 16,
+    .topCardTitleH = 36,
+    .topCardH = 214,
+    .globalCardH = 154,
+    .sectionTitleH = 34,
+    .sectionTitleFontId = UI_10_FONT_ID,
+    .chartLabelFontId = UI_10_FONT_ID,
+    .chartLabelW = 88,
+    .barH = 22,
+    .barGap = 12,
+    .chartTopPadding = 14,
+    .chartBottomPadding = 14,
+};
+
+constexpr StatsLayout kCompactLayout = {
+    .headerHeight = 62,
+    .topGap = 6,
+    .cardGap = 8,
+    .topCardTitleH = 30,
+    .topCardH = 156,
+    .globalCardH = 110,
+    .sectionTitleH = 30,
+    .sectionTitleFontId = UI_10_FONT_ID,
+    .chartLabelFontId = SMALL_FONT_ID,
+    .chartLabelW = 78,
+    .barH = 16,
+    .barGap = 8,
+    .chartTopPadding = 8,
+    .chartBottomPadding = 8,
+};
+
+constexpr std::array<StrId, READING_TIME_BUCKET_COUNT> TIME_BUCKET_LABELS = {
+    StrId::STR_STATS_MORNING, StrId::STR_STATS_AFTERNOON, StrId::STR_STATS_EVENING, StrId::STR_STATS_NIGHT};
+constexpr std::array<StrId, READING_DAY_OF_WEEK_COUNT> DAY_LABELS = {
+    StrId::STR_STATS_MON, StrId::STR_STATS_TUE, StrId::STR_STATS_WED, StrId::STR_STATS_THU,
+    StrId::STR_STATS_FRI, StrId::STR_STATS_SAT, StrId::STR_STATS_SUN};
+
+const char* dayCountText(const uint16_t days) { return days == 1 ? tr(STR_STATS_DAY) : tr(STR_STATS_DAYS); }
+
+int sectionCardHeight(const StatsLayout& layout, const int rowCount) {
+  if (rowCount <= 0) {
+    return layout.sectionTitleH + layout.chartTopPadding + layout.chartBottomPadding;
+  }
+  const int rowStride = layout.barH + layout.barGap;
+  return layout.sectionTitleH + layout.chartTopPadding + layout.chartBottomPadding + layout.barH +
+         (rowCount - 1) * rowStride;
+}
+
+int statsContentHeight(const StatsLayout& layout, const bool globalPage) {
+  const int topCardH = globalPage ? layout.globalCardH : layout.topCardH;
+  const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
+  const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
+  return layout.headerHeight + layout.topGap + topCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
+}
+
+const StatsLayout& getStatsLayout(GfxRenderer& renderer, const bool globalPage, const bool showButtonHints) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const bool compactLayout = allDevicesStats != nullptr;
+  const int reserveBottom = showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0;
+  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding - reserveBottom;
+  if (statsContentHeight(kDefaultLayout, globalPage) <= availableHeight) {
+    return kDefaultLayout;
+  }
+  return kCompactLayout;
+}
+
+void formatCompactEstimate(const uint32_t seconds, char* buf, const size_t len) {
+  if (seconds < 60) {
+    snprintf(buf, len, "<1m");
+    return;
+  }
+  const uint32_t minutes = (seconds + 30u) / 60u;
+  if (minutes < 60) {
+    snprintf(buf, len, "%lum", static_cast<unsigned long>(minutes));
+    return;
+  }
+  const uint32_t hours = minutes / 60u;
+  const uint32_t remainder = minutes % 60u;
+  if (remainder == 0) {
+    snprintf(buf, len, "%luh", static_cast<unsigned long>(hours));
+  } else {
+    snprintf(buf, len, "%luh %lum", static_cast<unsigned long>(hours), static_cast<unsigned long>(remainder));
+  }
+}
+
+bool fallbackEstimatedTimeLeft(const BookReadingStats& stats, const float progressPercent, uint32_t& seconds) {
+  seconds = 0;
+  if (progressPercent <= 0.0f || progressPercent >= 100.0f || stats.totalReadingSeconds < 120) {
+    return false;
+  }
+
+  const float progress = progressPercent / 100.0f;
+  const float estimate = (static_cast<float>(stats.totalReadingSeconds) * (1.0f - progress)) / progress;
+  if (estimate <= 0.0f) {
+    return false;
+  }
+  seconds = static_cast<uint32_t>(estimate + 0.5f);
+  return seconds > 0;
+}
+
+float pagesPerMinute(const uint32_t totalPagesTurned, const uint32_t totalReadingSeconds) {
+  if (totalReadingSeconds <= 60) {
+    return 0.0f;
+  }
+  return static_cast<float>(totalPagesTurned) * 60.0f / static_cast<float>(totalReadingSeconds);
+}
+
+void drawHeaderTitle(GfxRenderer& renderer, const char* title) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
-  const int cardX = metrics.contentSidePadding;
-  const int cardW = screenWidth - metrics.contentSidePadding * 2;
-  const int thirdW = cardW / 3;
-  const int halfW = cardW / 2;
+  const int headerHeight = 62;
+  constexpr int titleLiftPx = 5;
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, screenWidth, std::min(metrics.headerHeight, headerHeight)}, "");
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, screenWidth, metrics.headerHeight}, "");
-
-  const int availableH = metrics.headerHeight - metrics.batteryBarHeight;
+  const int visibleHeaderHeight = std::min(metrics.headerHeight, headerHeight);
+  const int availableH = visibleHeaderHeight - metrics.batteryBarHeight;
   const int titleX = metrics.contentSidePadding;
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int titleY = metrics.topPadding + metrics.batteryBarHeight + (availableH - lineHeight) / 2;
+  const int titleY = metrics.topPadding + metrics.batteryBarHeight + (availableH - lineHeight) / 2 - titleLiftPx;
   const int batteryStartX = screenWidth - metrics.contentSidePadding - metrics.batteryWidth;
   const int maxTitleWidth = batteryStartX - titleX - metrics.contentSidePadding;
-  const std::string truncTitle =
-      renderer.truncatedText(UI_12_FONT_ID, tr(STR_READING_STATS), maxTitleWidth, EpdFontFamily::BOLD);
+  const std::string truncTitle = renderer.truncatedText(UI_12_FONT_ID, title, maxTitleWidth, EpdFontFamily::BOLD);
   renderer.drawText(UI_12_FONT_ID, titleX, titleY, truncTitle.c_str(), true, EpdFontFamily::BOLD);
+}
 
-  int y = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
+void drawCenteredLabel(GfxRenderer& renderer, const int fontId, const int x, const int w, const int y, const char* text,
+                       const bool bold = false) {
+  const int textWidth = renderer.getTextWidth(fontId, text, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+  renderer.drawText(fontId, x + (w - textWidth) / 2, y, text, true,
+                    bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+}
 
+void drawStatCell(GfxRenderer& renderer, const int x, const int w, const int y, const int h, const char* value,
+                  const char* label) {
   const int valueLineH = renderer.getLineHeight(UI_12_FONT_ID);
   const int labelLineH = renderer.getLineHeight(SMALL_FONT_ID);
-  const int titleLineH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int totalTextH = valueLineH + 4 + labelLineH;
+  const int textY = y + (h - totalTextH) / 2;
+  drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, textY, value, true);
+  drawCenteredLabel(renderer, SMALL_FONT_ID, x, w, textY + valueLineH + 4, label);
+}
 
-  const int screenHeight = renderer.getScreenHeight();
-  const int buttonHintsReserve = showButtonHints ? metrics.buttonHintsHeight : 0;
-  const int cardGap = metrics.verticalSpacing;
-  int cardTitleH = 40;
-  int cellH = 90;
-  if (compactLayout) {
-    constexpr int cardCount = 3;
-    const int availableCardsH =
-        screenHeight - y - buttonHintsReserve - metrics.verticalSpacing - cardGap * (cardCount - 1);
-    const int minTitleH = titleLineH + 4;
-    const int minCellH = valueLineH + labelLineH + 2;
-    const int minCardH = minTitleH + minCellH * 2;
-    const int cardH = availableCardsH / cardCount > minCardH ? availableCardsH / cardCount : minCardH;
-    cardTitleH = cardH >= 160 ? 40 : minTitleH;
-    cellH = (cardH - cardTitleH) / 2;
+void drawSectionCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h, const char* title,
+                     const StatsLayout& layout) {
+  renderer.drawRect(x, y, w, h);
+  renderer.drawLine(x, y + layout.sectionTitleH, x + w, y + layout.sectionTitleH);
+  drawCenteredLabel(renderer, layout.sectionTitleFontId, x, w,
+                    y + (layout.sectionTitleH - renderer.getLineHeight(layout.sectionTitleFontId)) / 2, title, true);
+}
+
+template <size_t N>
+void drawHorizontalBars(GfxRenderer& renderer, const int x, const int y, const int w, const int h,
+                        const std::array<uint32_t, N>& values, const std::array<StrId, N>& labels,
+                        const StatsLayout& layout) {
+  constexpr int labelLeftPadding = 10;
+  constexpr int labelRightPadding = 18;
+  constexpr int barLeftGap = 8;
+  constexpr int rightPadding = 18;
+  const uint32_t maxValue = *std::max_element(values.begin(), values.end());
+  const int labelLineH = renderer.getLineHeight(layout.chartLabelFontId);
+  const int rowContentH = std::max(labelLineH, layout.barH);
+  const int baseContentH = layout.sectionTitleH + layout.chartTopPadding + layout.chartBottomPadding + rowContentH +
+                           (static_cast<int>(N) - 1) * (rowContentH + layout.barGap);
+  const int extraHeight = std::max(0, h - baseContentH);
+  const int spacingSlotCount = static_cast<int>(N) + 1;
+  const int extraPerSlot = spacingSlotCount > 0 ? extraHeight / spacingSlotCount : 0;
+  const int extraRemainder = spacingSlotCount > 0 ? extraHeight % spacingSlotCount : 0;
+  const int topPadding = layout.chartTopPadding + extraPerSlot + (extraRemainder > 0 ? 1 : 0);
+  const int rowGap = layout.barGap + extraPerSlot;
+  const int contentTop = y + layout.sectionTitleH + topPadding;
+  const int rowStride = rowContentH + rowGap;
+  int maxLabelW = 0;
+  for (size_t i = 0; i < N; ++i) {
+    maxLabelW = std::max(maxLabelW, renderer.getTextWidth(layout.chartLabelFontId, I18N.get(labels[i])));
   }
-  const int labelPad = compactLayout ? 2 : 6;
+  const int labelColumnW = std::max(layout.chartLabelW, labelLeftPadding + maxLabelW + labelRightPadding);
+  const int barX = x + labelColumnW + barLeftGap;
+  const int barW = std::max(0, w - labelColumnW - barLeftGap - rightPadding);
+  for (size_t i = 0; i < N; ++i) {
+    const int rowTop = contentTop + static_cast<int>(i) * rowStride;
+    const int labelY = rowTop + (rowContentH - labelLineH) / 2;
+    const int barY = rowTop + (rowContentH - layout.barH) / 2;
+    renderer.drawText(layout.chartLabelFontId, x + labelLeftPadding, labelY, I18N.get(labels[i]));
+    if (maxValue > 0 && values[i] > 0) {
+      const int fillW = std::max(2, static_cast<int>((static_cast<uint64_t>(barW) * values[i]) / maxValue));
+      renderer.fillRect(barX, barY, fillW, layout.barH, true);
+    }
+  }
+}
 
-  auto drawStatCell = [&](int x, int w, int cellY, const char* value, const char* label) {
-    const int totalTextH = valueLineH + labelPad + labelLineH;
-    const int textY = cellY + (cellH - totalTextH) / 2;
+void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h,
+                          const std::string& bookTitle, const BookReadingStats& stats, const float progressPercent,
+                          const bool hasEstimatedTimeLeft, const uint32_t estimatedTimeLeftSeconds,
+                          const StatsLayout& layout) {
+  renderer.drawRect(x, y, w, h);
+  renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
+  const std::string visibleTitle =
+      renderer.truncatedText(UI_10_FONT_ID, bookTitle.c_str(), w - 20, EpdFontFamily::BOLD);
+  drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
+                    y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, visibleTitle.c_str(), true);
 
-    const int vw = renderer.getTextWidth(UI_12_FONT_ID, value, EpdFontFamily::BOLD);
-    renderer.drawText(UI_12_FONT_ID, x + (w - vw) / 2, textY, value, true, EpdFontFamily::BOLD);
+  const int thirdW = w / 3;
+  const int halfW = w / 2;
+  const int rowH = (h - layout.topCardTitleH) / 3;
+  char buf[40];
 
-    const int lw = renderer.getTextWidth(SMALL_FONT_ID, label);
-    renderer.drawText(SMALL_FONT_ID, x + (w - lw) / 2, textY + valueLineH + labelPad, label, true);
-  };
-
-  auto drawCardTitle = [&](int cardY, const char* title) {
-    const std::string truncTitle =
-        renderer.truncatedText(UI_10_FONT_ID, title, cardW - metrics.contentSidePadding * 2, EpdFontFamily::BOLD);
-    const int tw = renderer.getTextWidth(UI_10_FONT_ID, truncTitle.c_str(), EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, cardX + (cardW - tw) / 2, cardY + (cardTitleH - titleLineH) / 2,
-                      truncTitle.c_str(), true, EpdFontFamily::BOLD);
-  };
-
-  char buf[32];
-
-  renderer.drawRect(cardX, y, cardW, cardTitleH + cellH * 2);
-  drawCardTitle(y, bookTitle.c_str());
-
-  y += cardTitleH;
-  renderer.drawLine(cardX, y, cardX + cardW, y);
-
-  const int row1Y = y;
   snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(stats.sessionCount));
-  drawStatCell(cardX, thirdW, row1Y, buf, tr(STR_STATS_SESSIONS_LBL));
+  drawStatCell(renderer, x, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_SESSIONS_LBL));
 
   BookReadingStats::formatDuration(stats.totalReadingSeconds, buf, sizeof(buf));
-  drawStatCell(cardX + thirdW, thirdW, row1Y, buf, tr(STR_STATS_TIME_LBL));
+  drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_TIME_LBL));
 
-  snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(stats.totalPagesTurned));
-  drawStatCell(cardX + thirdW * 2, thirdW, row1Y, buf, tr(STR_STATS_PAGES_LBL));
+  if (progressPercent >= 0.0f) {
+    snprintf(buf, sizeof(buf), "%d%%", static_cast<int>(progressPercent + 0.5f));
+  } else {
+    snprintf(buf, sizeof(buf), "-");
+  }
+  drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_PROGRESS_LBL));
 
-  y += cellH;
-
-  const int row2Y = y;
   const uint32_t avgSecs = stats.sessionCount > 0 ? stats.totalReadingSeconds / stats.sessionCount : 0;
   BookReadingStats::formatDuration(avgSecs, buf, sizeof(buf));
-  drawStatCell(cardX, halfW, row2Y, buf, tr(STR_STATS_AVG_SESSION_LBL));
+  drawStatCell(renderer, x, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_AVG_SESSION_LBL));
 
-  if (stats.totalReadingSeconds > 60) {
-    const float ppm =
-        static_cast<float>(stats.totalPagesTurned) * 60.0f / static_cast<float>(stats.totalReadingSeconds);
-    snprintf(buf, sizeof(buf), "%.1f", ppm);
+  uint32_t fallbackEstimateSeconds = 0;
+  const bool hasFallbackEstimate = fallbackEstimatedTimeLeft(stats, progressPercent, fallbackEstimateSeconds);
+  if (!stats.isCompleted && (hasEstimatedTimeLeft || hasFallbackEstimate)) {
+    formatCompactEstimate(hasEstimatedTimeLeft ? estimatedTimeLeftSeconds : fallbackEstimateSeconds, buf, sizeof(buf));
   } else {
-    snprintf(buf, sizeof(buf), "0.0");
+    snprintf(buf, sizeof(buf), "-");
   }
-  drawStatCell(cardX + halfW, halfW, row2Y, buf, tr(STR_STATS_PAGES_PER_MIN));
+  drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_TIME_LEFT));
 
-  y += cellH;
-  y += cardGap;
+  snprintf(buf, sizeof(buf), "%.1f", pagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
+  drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
+               tr(STR_STATS_PAGES_PER_MIN));
 
-  const int card2H = cardTitleH + cellH * 2;
-  auto drawGlobalCard = [&](int cardY, const char* title, const GlobalReadingStats& cardStats) {
-    renderer.drawRect(cardX, cardY, cardW, card2H);
-
-    drawCardTitle(cardY, title);
-
-    int cardContentY = cardY + cardTitleH;
-    renderer.drawLine(cardX, cardContentY, cardX + cardW, cardContentY);
-
-    snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(cardStats.totalSessions));
-    drawStatCell(cardX, thirdW, cardContentY, buf, tr(STR_STATS_SESSIONS_LBL));
-
-    BookReadingStats::formatDuration(cardStats.totalReadingSeconds, buf, sizeof(buf));
-    drawStatCell(cardX + thirdW, thirdW, cardContentY, buf, tr(STR_STATS_TIME_LBL));
-
-    snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(cardStats.totalPagesTurned));
-    drawStatCell(cardX + thirdW * 2, thirdW, cardContentY, buf, tr(STR_STATS_PAGES_LBL));
-
-    cardContentY += cellH;
-
-    if (cardStats.completedBooks > 0) {
-      const uint32_t globalAvgSecs =
-          cardStats.totalSessions > 0 ? cardStats.totalReadingSeconds / cardStats.totalSessions : 0;
-      BookReadingStats::formatDuration(globalAvgSecs, buf, sizeof(buf));
-      drawStatCell(cardX, thirdW, cardContentY, buf, tr(STR_STATS_AVG_SESSION_LBL));
-
-      if (cardStats.totalReadingSeconds > 60) {
-        const float ppm =
-            static_cast<float>(cardStats.totalPagesTurned) * 60.0f / static_cast<float>(cardStats.totalReadingSeconds);
-        snprintf(buf, sizeof(buf), "%.1f", ppm);
-      } else {
-        snprintf(buf, sizeof(buf), "0.0");
-      }
-      drawStatCell(cardX + thirdW, thirdW, cardContentY, buf, tr(STR_STATS_PAGES_PER_MIN));
-
-      snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(cardStats.completedBooks));
-      drawStatCell(cardX + thirdW * 2, thirdW, cardContentY, buf, tr(STR_STATS_COMPLETED_LBL));
-    } else {
-      const uint32_t globalAvgSecs =
-          cardStats.totalSessions > 0 ? cardStats.totalReadingSeconds / cardStats.totalSessions : 0;
-      BookReadingStats::formatDuration(globalAvgSecs, buf, sizeof(buf));
-      drawStatCell(cardX, halfW, cardContentY, buf, tr(STR_STATS_AVG_SESSION_LBL));
-
-      if (cardStats.totalReadingSeconds > 60) {
-        const float ppm =
-            static_cast<float>(cardStats.totalPagesTurned) * 60.0f / static_cast<float>(cardStats.totalReadingSeconds);
-        snprintf(buf, sizeof(buf), "%.1f", ppm);
-      } else {
-        snprintf(buf, sizeof(buf), "0.0");
-      }
-      drawStatCell(cardX + halfW, halfW, cardContentY, buf, tr(STR_STATS_PAGES_PER_MIN));
-    }
-  };
-
-  if (screenHeight - y - buttonHintsReserve - metrics.verticalSpacing >= card2H || compactLayout) {
-    drawGlobalCard(y, allDevicesStats ? tr(STR_STATS_THIS_DEVICE) : tr(STR_STATS_ALL_TIME), globalStats);
-    y += card2H;
-
-    if (allDevicesStats) {
-      y += cardGap;
-      drawGlobalCard(y, tr(STR_STATS_ALL_DEVICES), *allDevicesStats);
-    }
+  ReadingStatsDateTime today;
+  const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
+  const ReadingStatsDate endDate = stats.isCompleted && stats.finishedDate.isValid()
+                                       ? stats.finishedDate
+                                       : (hasToday ? today.date : ReadingStatsDate{});
+  const uint16_t daysReading =
+      stats.startDate.isValid() && endDate.isValid() ? readingSpanDaysInclusive(stats.startDate, endDate) : 0;
+  if (daysReading > 0) {
+    snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(daysReading), dayCountText(daysReading));
+  } else {
+    snprintf(buf, sizeof(buf), "-");
   }
+  char startedLabel[32];
+  char dateBuf[24];
+  formatReadingStatsShortDate(stats.startDate, dateBuf, sizeof(dateBuf));
+  snprintf(startedLabel, sizeof(startedLabel), "%s %s", tr(STR_STATS_STARTED), dateBuf);
+  drawStatCell(renderer, x, halfW, y + layout.topCardTitleH + rowH * 2, rowH, buf, startedLabel);
+
+  ReadingStatsDate finishDisplayDate;
+  bool finished = stats.isCompleted;
+  if (finished) {
+    finishDisplayDate = stats.finishedDate;
+  } else if (hasToday && (hasEstimatedTimeLeft || hasFallbackEstimate)) {
+    ReadingStatsDateTime estimatedFinish = today;
+    addSecondsToReadingStatsDateTime(estimatedFinish,
+                                     hasEstimatedTimeLeft ? estimatedTimeLeftSeconds : fallbackEstimateSeconds);
+    finishDisplayDate = estimatedFinish.date;
+  }
+  formatReadingStatsShortDate(finishDisplayDate, buf, sizeof(buf));
+  drawStatCell(renderer, x + halfW, halfW, y + layout.topCardTitleH + rowH * 2, rowH, buf,
+               finished ? tr(STR_STATS_FINISHED_DATE) : tr(STR_STATS_EST_FINISH_DATE));
+}
+
+void drawGlobalStatsCard(GfxRenderer& renderer, const int x, const int y, const int w, const int h,
+                         const GlobalReadingStats& stats, const StatsLayout& layout) {
+  renderer.drawRect(x, y, w, h);
+  renderer.drawLine(x, y + layout.topCardTitleH, x + w, y + layout.topCardTitleH);
+  drawCenteredLabel(renderer, UI_10_FONT_ID, x, w,
+                    y + (layout.topCardTitleH - renderer.getLineHeight(UI_10_FONT_ID)) / 2, tr(STR_STATS_ALL_TIME),
+                    true);
+
+  const int thirdW = w / 3;
+  const int rowH = (h - layout.topCardTitleH) / 2;
+  char buf[40];
+
+  snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(stats.totalSessions));
+  drawStatCell(renderer, x, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_SESSIONS_LBL));
+
+  BookReadingStats::formatDuration(stats.totalReadingSeconds, buf, sizeof(buf));
+  drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_TIME_LBL));
+
+  snprintf(buf, sizeof(buf), "%.1f", pagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
+  drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH, rowH, buf, tr(STR_STATS_PAGES_PER_MIN));
+
+  const uint32_t avgSecs = stats.totalSessions > 0 ? stats.totalReadingSeconds / stats.totalSessions : 0;
+  BookReadingStats::formatDuration(avgSecs, buf, sizeof(buf));
+  drawStatCell(renderer, x, thirdW, y + layout.topCardTitleH + rowH, rowH, buf, tr(STR_STATS_AVG_SESSION_LBL));
+
+  ReadingStatsDateTime today;
+  const bool hasToday = getCurrentLocalReadingStatsDateTime(today);
+  const uint16_t currentStreak = hasToday ? stats.currentReadingStreak(&today.date) : 0;
+  if (currentStreak > 0) {
+    snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(currentStreak), dayCountText(currentStreak));
+  } else {
+    snprintf(buf, sizeof(buf), "-");
+  }
+  drawStatCell(renderer, x + thirdW, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
+               tr(STR_STATS_READING_STREAK_LBL));
+
+  const uint16_t longestStreak = stats.displayLongestReadingStreak();
+  if (longestStreak > 0) {
+    snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(longestStreak), dayCountText(longestStreak));
+  } else {
+    snprintf(buf, sizeof(buf), "-");
+  }
+  drawStatCell(renderer, x + thirdW * 2, thirdW, y + layout.topCardTitleH + rowH, rowH, buf,
+               tr(STR_STATS_LONGEST_STREAK_LBL));
+}
+
+void drawDateField(GfxRenderer& renderer, const int x, const int y, const int w, const char* text,
+                   const bool selected) {
+  const int h = renderer.getLineHeight(UI_12_FONT_ID) + 10;
+  renderer.fillRectDither(x, y, w, h, selected ? Color::LightGray : Color::White);
+  renderer.drawRect(x, y, w, h, true);
+  if (selected) {
+    renderer.drawRect(x + 1, y + 1, w - 2, h - 2, true);
+  }
+  drawCenteredLabel(renderer, UI_12_FONT_ID, x, w, y + 5, text);
+}
+}  // namespace
+
+void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
+                            const BookReadingStats& stats, const float progressPercent, const bool hasEstimatedTimeLeft,
+                            const uint32_t estimatedTimeLeftSeconds, const bool showButtonHints,
+                            const bool showEditButton, const bool showMoreButton) {
+  renderer.clearScreen();
+  drawHeaderTitle(renderer, tr(STR_READING_STATS));
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto& layout = getStatsLayout(renderer, false, showButtonHints);
+  const int screenW = renderer.getScreenWidth();
+  const int cardX = metrics.contentSidePadding;
+  const int cardW = screenW - metrics.contentSidePadding * 2;
+  const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
+  const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
+  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
+                              (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+  const int compactContentHeight = std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap +
+                                   layout.topCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
+  const int extraHeight = std::max(0, availableHeight - compactContentHeight);
+  const int extraTopCardHeight = std::min(extraHeight, 84);
+  const int remainingExtraHeight = extraHeight - extraTopCardHeight;
+  const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
+  const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
+  const int topCardH = layout.topCardH + extraTopCardHeight;
+  const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
+  const int dayOfWeekCardH = dayOfWeekH + dayOfWeekExtraHeight;
+  int y = metrics.topPadding + std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap;
+
+  drawPerBookStatsCard(renderer, cardX, y, cardW, topCardH, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
+                       estimatedTimeLeftSeconds, layout);
+  y += topCardH + layout.cardGap;
+
+  drawSectionCard(renderer, cardX, y, cardW, timeOfDayCardH, tr(STR_STATS_TIME_OF_DAY), layout);
+  drawHorizontalBars(renderer, cardX, y, cardW, timeOfDayCardH, stats.timeOfDaySeconds, TIME_BUCKET_LABELS, layout);
+  y += timeOfDayCardH + layout.cardGap;
+
+  drawSectionCard(renderer, cardX, y, cardW, dayOfWeekCardH, tr(STR_STATS_DAY_OF_WEEK), layout);
+  drawHorizontalBars(renderer, cardX, y, cardW, dayOfWeekCardH, stats.dayOfWeekSeconds, DAY_LABELS, layout);
 
   if (showButtonHints && mappedInput) {
-    const auto labels = mappedInput->mapLabels(tr(STR_BACK), "", "", "");
+    const auto labels = mappedInput->mapLabels("", tr(STR_EXIT), showEditButton ? tr(STR_EDIT) : "",
+                                               showMoreButton ? tr(STR_MORE) : "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+void renderGlobalStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const char* screenTitle,
+                           const GlobalReadingStats& stats, const bool showButtonHints, const bool showMoreButton) {
+  renderer.clearScreen();
+  drawHeaderTitle(renderer, screenTitle);
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto& layout = getStatsLayout(renderer, true, showButtonHints);
+  const int screenW = renderer.getScreenWidth();
+  const int cardX = metrics.contentSidePadding;
+  const int cardW = screenW - metrics.contentSidePadding * 2;
+  const int timeOfDayH = sectionCardHeight(layout, static_cast<int>(TIME_BUCKET_LABELS.size()));
+  const int dayOfWeekH = sectionCardHeight(layout, static_cast<int>(DAY_LABELS.size()));
+  const int availableHeight = renderer.getScreenHeight() - metrics.topPadding -
+                              (showButtonHints ? metrics.buttonHintsHeight + kStatsButtonHintTopGap : 0);
+  const int compactContentHeight = std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap +
+                                   layout.globalCardH + layout.cardGap + timeOfDayH + layout.cardGap + dayOfWeekH;
+  const int extraHeight = std::max(0, availableHeight - compactContentHeight);
+  const int extraTopCardHeight = std::min(extraHeight, 48);
+  const int remainingExtraHeight = extraHeight - extraTopCardHeight;
+  const int timeOfDayExtraHeight = (remainingExtraHeight * 4) / 11;
+  const int dayOfWeekExtraHeight = remainingExtraHeight - timeOfDayExtraHeight;
+  const int globalCardH = layout.globalCardH + extraTopCardHeight;
+  const int timeOfDayCardH = timeOfDayH + timeOfDayExtraHeight;
+  const int dayOfWeekCardH = dayOfWeekH + dayOfWeekExtraHeight;
+  int y = metrics.topPadding + std::min(metrics.headerHeight, layout.headerHeight) + layout.topGap;
+
+  drawGlobalStatsCard(renderer, cardX, y, cardW, globalCardH, stats, layout);
+  y += globalCardH + layout.cardGap;
+
+  drawSectionCard(renderer, cardX, y, cardW, timeOfDayCardH, tr(STR_STATS_TIME_OF_DAY), layout);
+  drawHorizontalBars(renderer, cardX, y, cardW, timeOfDayCardH, stats.timeOfDaySeconds, TIME_BUCKET_LABELS, layout);
+  y += timeOfDayCardH + layout.cardGap;
+
+  drawSectionCard(renderer, cardX, y, cardW, dayOfWeekCardH, tr(STR_STATS_DAY_OF_WEEK), layout);
+  drawHorizontalBars(renderer, cardX, y, cardW, dayOfWeekCardH, stats.dayOfWeekSeconds, DAY_LABELS, layout);
+
+  if (showButtonHints && mappedInput) {
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_EXIT), "", showMoreButton ? tr(STR_MORE) : "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
+                             const BookReadingStats& stats, const int selectedField, const bool showButtonHints) {
+  renderer.clearScreen();
+  drawHeaderTitle(renderer, tr(STR_READING_STATS));
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  const int cardW = pageWidth - 120;
+  const int cardH = 250;
+  const int cardX = (pageWidth - cardW) / 2;
+  const int cardY = 138;
+
+  const std::string visibleTitle =
+      renderer.truncatedText(UI_12_FONT_ID, bookTitle.c_str(), pageWidth - 80, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_12_FONT_ID, 96, visibleTitle.c_str(), true, EpdFontFamily::BOLD);
+  renderer.drawRect(cardX, cardY, cardW, cardH);
+
+  const int sectionGap = 104;
+  const int row1Y = cardY + 66;
+  const int row2Y = row1Y + sectionGap;
+  const int monthW = 52;
+  const int dayW = 46;
+  const int yearW = 58;
+  const int gap = 14;
+  const int totalFieldW = monthW + gap + dayW + gap + yearW;
+  const int fieldStartX = cardX + (cardW - totalFieldW) / 2;
+
+  char monthBuf[8];
+  char dayBuf[8];
+  char yearBuf[8];
+
+  drawCenteredLabel(renderer, UI_10_FONT_ID, cardX, cardW, cardY + 24, tr(STR_STATS_START_DATE), true);
+  formatReadingStatsMonthToken(stats.startDate, monthBuf, sizeof(monthBuf));
+  snprintf(dayBuf, sizeof(dayBuf), "%s", stats.startDate.isValid() ? "" : "-");
+  if (stats.startDate.isValid()) {
+    snprintf(dayBuf, sizeof(dayBuf), "%02u", static_cast<unsigned>(stats.startDate.day));
+    snprintf(yearBuf, sizeof(yearBuf), "%u", static_cast<unsigned>(stats.startDate.year));
+  } else {
+    snprintf(dayBuf, sizeof(dayBuf), "-");
+    snprintf(yearBuf, sizeof(yearBuf), "-");
+  }
+  drawDateField(renderer, fieldStartX, row1Y, monthW, monthBuf, selectedField == 0);
+  drawDateField(renderer, fieldStartX + monthW + gap, row1Y, dayW, dayBuf, selectedField == 1);
+  drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row1Y, yearW, yearBuf, selectedField == 2);
+
+  drawCenteredLabel(renderer, UI_10_FONT_ID, cardX, cardW, cardY + 24 + sectionGap, tr(STR_STATS_FINISHED_DATE), true);
+  const bool showFinishedFields = stats.isCompleted && stats.finishedDate.isValid();
+  formatReadingStatsMonthToken(showFinishedFields ? stats.finishedDate : ReadingStatsDate{}, monthBuf,
+                               sizeof(monthBuf));
+  if (showFinishedFields) {
+    snprintf(dayBuf, sizeof(dayBuf), "%02u", static_cast<unsigned>(stats.finishedDate.day));
+    snprintf(yearBuf, sizeof(yearBuf), "%u", static_cast<unsigned>(stats.finishedDate.year));
+  } else {
+    snprintf(dayBuf, sizeof(dayBuf), "-");
+    snprintf(yearBuf, sizeof(yearBuf), "-");
+  }
+  drawDateField(renderer, fieldStartX, row2Y, monthW, monthBuf, selectedField == 3);
+  drawDateField(renderer, fieldStartX + monthW + gap, row2Y, dayW, dayBuf, selectedField == 4);
+  drawDateField(renderer, fieldStartX + monthW + gap + dayW + gap, row2Y, yearW, yearBuf, selectedField == 5);
+
+  if (showButtonHints && mappedInput) {
+    const auto labels = mappedInput->mapLabels(tr(STR_BACK), tr(STR_NEXT_FIELD), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
