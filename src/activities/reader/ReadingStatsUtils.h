@@ -41,6 +41,7 @@ uint8_t readingStatsDayOfWeekIndex(const ReadingStatsDate& date);  // Monday = 0
 ReadingTimeBucket readingTimeBucketForHour(uint8_t hour);
 bool getCurrentLocalReadingStatsDateTime(ReadingStatsDateTime& outDateTime);
 uint16_t readingSpanDaysInclusive(const ReadingStatsDate& start, const ReadingStatsDate& end);
+uint16_t readingSpanDaysElapsed(const ReadingStatsDate& start, const ReadingStatsDate& end);
 void formatReadingStatsShortDate(const ReadingStatsDate& date, char* buf, size_t len);
 void formatReadingStatsMonthToken(const ReadingStatsDate& date, char* buf, size_t len);
 

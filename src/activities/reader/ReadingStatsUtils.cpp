@@ -275,6 +275,15 @@ uint16_t readingSpanDaysInclusive(const ReadingStatsDate& start, const ReadingSt
   return static_cast<uint16_t>(endDay - startDay + 1u);
 }
 
+uint16_t readingSpanDaysElapsed(const ReadingStatsDate& start, const ReadingStatsDate& end) {
+  if (!start.isValid() || !end.isValid() || compareReadingStatsDate(end, start) < 0) {
+    return 0;
+  }
+  const uint32_t startDay = readingStatsDayIndex(start);
+  const uint32_t endDay = readingStatsDayIndex(end);
+  return static_cast<uint16_t>(endDay - startDay);
+}
+
 void formatReadingStatsShortDate(const ReadingStatsDate& date, char* buf, const size_t len) {
   if (!buf || len == 0) {
     return;

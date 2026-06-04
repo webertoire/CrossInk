@@ -108,14 +108,57 @@ void BookStatsActivity::normalizeEditedDates(const bool editedFinishedField) {
   }
 }
 
+void BookStatsActivity::clearEditedDate(const bool finishedField) {
+  ReadingStatsDate& date = finishedField ? stats.finishedDate : stats.startDate;
+  date.clear();
+
+  if (finishedField) {
+    stats.finishedDateManual = false;
+    applyCompletedState(false);
+  } else {
+    stats.startDateManual = false;
+  }
+
+  didChangeStats = true;
+  setResult(ReadingStatsResult{true});
+  requestUpdate();
+}
+
+bool BookStatsActivity::shouldClearDateOnAdjust(const ReadingStatsDate& date, const bool finishedField,
+                                                const int fieldIndex, const int delta) const {
+  if (!date.isValid()) {
+    return false;
+  }
+
+  switch (fieldIndex) {
+    case 0:
+      return (date.month == 1 && delta < 0) || (date.month == 12 && delta > 0);
+    case 1: {
+      const uint8_t monthDays = daysInMonth(date.year, date.month);
+      return (date.day == 1 && delta < 0) || (date.day == monthDays && delta > 0);
+    }
+    case 2:
+      return (date.year == 2000 && delta < 0) || (date.year == 2099 && delta > 0);
+    default:
+      return false;
+  }
+}
+
 void BookStatsActivity::adjustSelectedDateField(const int delta) {
   const bool finishedField = selectedEditField >= 3;
   ReadingStatsDate& date = finishedField ? stats.finishedDate : stats.startDate;
+  const int fieldIndex = selectedEditField % 3;
+
+  if (shouldClearDateOnAdjust(date, finishedField, fieldIndex, delta)) {
+    clearEditedDate(finishedField);
+    return;
+  }
+
   if (!date.isValid()) {
     date = defaultDateForField(finishedField);
   }
 
-  switch (selectedEditField % 3) {
+  switch (fieldIndex) {
     case 0: {
       int month = static_cast<int>(date.month) + delta;
       while (month < 1) {
@@ -197,11 +240,13 @@ void BookStatsActivity::loop() {
       requestUpdate();
       return;
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Left)) {
       adjustSelectedDateField(-1);
       return;
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
+        mappedInput.wasPressed(MappedInputManager::Button::Right)) {
       adjustSelectedDateField(1);
       return;
     }

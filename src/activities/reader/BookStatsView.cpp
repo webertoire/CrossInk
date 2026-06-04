@@ -141,10 +141,8 @@ bool estimateFinishDateFromDailyPace(const BookReadingStats& stats, const Readin
     return false;
   }
 
-  const uint16_t readingDays = readingSpanDaysInclusive(stats.startDate, today.date);
-  if (readingDays == 0) {
-    return false;
-  }
+  const uint16_t elapsedDays = readingSpanDaysElapsed(stats.startDate, today.date);
+  const uint16_t readingDays = std::max<uint16_t>(1, elapsedDays);
 
   // Convert remaining reading time into calendar time using the book's average reading seconds per calendar day.
   const uint64_t estimatedCalendarSeconds =
@@ -303,9 +301,9 @@ void drawPerBookStatsCard(GfxRenderer& renderer, const int x, const int y, const
   const ReadingStatsDate endDate = stats.isCompleted && stats.finishedDate.isValid()
                                        ? stats.finishedDate
                                        : (hasToday ? today.date : ReadingStatsDate{});
-  const uint16_t daysReading =
-      stats.startDate.isValid() && endDate.isValid() ? readingSpanDaysInclusive(stats.startDate, endDate) : 0;
-  if (daysReading > 0) {
+  const bool hasDaySpan = stats.startDate.isValid() && endDate.isValid();
+  const uint16_t daysReading = hasDaySpan ? readingSpanDaysElapsed(stats.startDate, endDate) : 0;
+  if (hasDaySpan) {
     snprintf(buf, sizeof(buf), "%u %s", static_cast<unsigned>(daysReading), dayCountText(daysReading));
   } else {
     snprintf(buf, sizeof(buf), "-");
@@ -502,7 +500,7 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   const int row2Y = row1Y + sectionGap;
   const int monthW = 52;
   const int dayW = 46;
-  const int yearW = 58;
+  const int yearW = 68;
   const int gap = 14;
   const int totalFieldW = monthW + gap + dayW + gap + yearW;
   const int fieldStartX = cardX + (cardW - totalFieldW) / 2;

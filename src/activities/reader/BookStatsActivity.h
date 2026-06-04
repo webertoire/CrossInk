@@ -29,6 +29,8 @@ class BookStatsActivity final : public Activity {
   void adjustSelectedDateField(int delta);
   void applyCompletedState(bool completed);
   ReadingStatsDate defaultDateForField(bool finishedField) const;
+  void clearEditedDate(bool finishedField);
+  bool shouldClearDateOnAdjust(const ReadingStatsDate& date, bool finishedField, int fieldIndex, int delta) const;
   void normalizeEditedDates(const bool editedFinishedField);
 
  public:
