@@ -129,7 +129,7 @@ void XMLCALL TocNavParser::endElement(void* userData, const XML_Char* name) {
       const std::string rawTarget = self->baseContentPath + self->currentHref;
       const size_t pos = rawTarget.find('#');
       const std::string rawPath = pos == std::string::npos ? rawTarget : rawTarget.substr(0, pos);
-      std::string href = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(rawPath));
+      std::string href = FsHelpers::normalisePath(rawPath);
       std::string anchor;
 
       if (pos != std::string::npos) {

@@ -12,6 +12,13 @@
 #include "Epub/parsers/TocNavParser.h"
 #include "Epub/parsers/TocNcxParser.h"
 
+namespace {
+std::string decodedZipPathFallback(const std::string& normalizedPath) {
+  const std::string decodedPath = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(normalizedPath));
+  return decodedPath == normalizedPath ? std::string{} : decodedPath;
+}
+}  // namespace
+
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
   const auto containerPath = "META-INF/container.xml";
   size_t containerSize;
@@ -118,7 +125,7 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
       }
 
       if (!imageRef.empty()) {
-        bookMetadata.coverItemHref = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(coverPageBase + imageRef));
+        bookMetadata.coverItemHref = FsHelpers::normalisePath(coverPageBase + imageRef);
         LOG_DBG("EBP", "Found cover image from guide: %s", bookMetadata.coverItemHref.c_str());
       }
     }
@@ -758,12 +765,21 @@ uint8_t* Epub::readItemContentsToBytes(const std::string& itemHref, size_t* size
   const std::string path = FsHelpers::normalisePath(itemHref);
 
   const auto content = ZipFile(filepath).readFileToMemory(path.c_str(), size, trailingNullByte);
-  if (!content) {
-    LOG_DBG("EBP", "Failed to read item %s", path.c_str());
-    return nullptr;
+  if (content) {
+    return content;
   }
 
-  return content;
+  const std::string decodedPath = decodedZipPathFallback(path);
+  if (!decodedPath.empty()) {
+    const auto decodedContent = ZipFile(filepath).readFileToMemory(decodedPath.c_str(), size, trailingNullByte);
+    if (decodedContent) {
+      LOG_DBG("EBP", "Resolved URI-escaped EPUB item: %s -> %s", path.c_str(), decodedPath.c_str());
+      return decodedContent;
+    }
+  }
+
+  LOG_DBG("EBP", "Failed to read item %s", path.c_str());
+  return nullptr;
 }
 
 bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, const size_t chunkSize) const {
@@ -773,12 +789,32 @@ bool Epub::readItemContentsToStream(const std::string& itemHref, Print& out, con
   }
 
   const std::string path = FsHelpers::normalisePath(itemHref);
-  return ZipFile(filepath).readFileToStream(path.c_str(), out, chunkSize);
+  if (ZipFile(filepath).readFileToStream(path.c_str(), out, chunkSize)) {
+    return true;
+  }
+
+  const std::string decodedPath = decodedZipPathFallback(path);
+  if (!decodedPath.empty() && ZipFile(filepath).readFileToStream(decodedPath.c_str(), out, chunkSize)) {
+    LOG_DBG("EBP", "Resolved URI-escaped EPUB item: %s -> %s", path.c_str(), decodedPath.c_str());
+    return true;
+  }
+
+  return false;
 }
 
 bool Epub::getItemSize(const std::string& itemHref, size_t* size) const {
   const std::string path = FsHelpers::normalisePath(itemHref);
-  return ZipFile(filepath).getInflatedFileSize(path.c_str(), size);
+  if (ZipFile(filepath).getInflatedFileSize(path.c_str(), size)) {
+    return true;
+  }
+
+  const std::string decodedPath = decodedZipPathFallback(path);
+  if (!decodedPath.empty() && ZipFile(filepath).getInflatedFileSize(decodedPath.c_str(), size)) {
+    LOG_DBG("EBP", "Resolved URI-escaped EPUB item: %s -> %s", path.c_str(), decodedPath.c_str());
+    return true;
+  }
+
+  return false;
 }
 
 int Epub::getSpineItemsCount() const {
@@ -903,23 +939,31 @@ int Epub::resolveHrefToSpineIndex(const std::string& href) const {
   // Split before decoding so escaped '#' characters in filenames stay part of the path.
   const size_t hashPos = href.find('#');
   const std::string rawTarget = hashPos != std::string::npos ? href.substr(0, hashPos) : href;
-  const std::string target = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(rawTarget));
+  const std::string target = FsHelpers::normalisePath(rawTarget);
+  const std::string decodedTarget = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(target));
 
   // Same-file reference (anchor-only)
   if (target.empty()) return -1;
 
-  // Extract just the filename for comparison
-  size_t targetSlash = target.find_last_of('/');
-  std::string targetFilename = (targetSlash != std::string::npos) ? target.substr(targetSlash + 1) : target;
+  auto findMatch = [this](const std::string& candidate) -> int {
+    // Extract just the filename for comparison
+    size_t targetSlash = candidate.find_last_of('/');
+    std::string targetFilename = (targetSlash != std::string::npos) ? candidate.substr(targetSlash + 1) : candidate;
 
-  for (int i = 0; i < getSpineItemsCount(); i++) {
-    const auto& spineHref = getSpineItem(i).href;
-    // Try exact match first
-    if (spineHref == target) return i;
-    // Then filename-only match
-    size_t spineSlash = spineHref.find_last_of('/');
-    std::string spineFilename = (spineSlash != std::string::npos) ? spineHref.substr(spineSlash + 1) : spineHref;
-    if (spineFilename == targetFilename) return i;
-  }
-  return -1;
+    for (int i = 0; i < getSpineItemsCount(); i++) {
+      const auto& spineHref = getSpineItem(i).href;
+      // Try exact match first
+      if (spineHref == candidate) return i;
+      // Then filename-only match
+      size_t spineSlash = spineHref.find_last_of('/');
+      std::string spineFilename = (spineSlash != std::string::npos) ? spineHref.substr(spineSlash + 1) : spineHref;
+      if (spineFilename == targetFilename) return i;
+    }
+    return -1;
+  };
+
+  const int rawMatch = findMatch(target);
+  if (rawMatch != -1) return rawMatch;
+
+  return decodedTarget == target ? -1 : findMatch(decodedTarget);
 }

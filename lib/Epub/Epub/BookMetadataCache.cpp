@@ -9,10 +9,25 @@
 #include "FsHelpers.h"
 
 namespace {
-constexpr uint8_t BOOK_CACHE_VERSION = 7;
+constexpr uint8_t BOOK_CACHE_VERSION = 8;
 constexpr char bookBinFile[] = "/book.bin";
 constexpr char tmpSpineBinFile[] = "/spine.bin.tmp";
 constexpr char tmpTocBinFile[] = "/toc.bin.tmp";
+
+bool getInflatedFileSizeWithUriFallback(ZipFile& zip, const std::string& href, size_t* size) {
+  const std::string path = FsHelpers::normalisePath(href);
+  if (zip.getInflatedFileSize(path.c_str(), size)) {
+    return true;
+  }
+
+  const std::string decodedPath = FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(path));
+  if (decodedPath != path && zip.getInflatedFileSize(decodedPath.c_str(), size)) {
+    LOG_DBG("BMC", "Resolved URI-escaped EPUB item: %s -> %s", path.c_str(), decodedPath.c_str());
+    return true;
+  }
+
+  return false;
+}
 }  // namespace
 
 /* ============= WRITING / BUILDING FUNCTIONS ================ */
@@ -243,15 +258,13 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     if (useBatchSizes) {
       itemSize = spineSizes[i];
       if (itemSize == 0) {
-        const std::string path = FsHelpers::normalisePath(spineEntry.href);
-        if (!zip.getInflatedFileSize(path.c_str(), &itemSize)) {
-          LOG_ERR("BMC", "Warning: Could not get size for spine item: %s", path.c_str());
+        if (!getInflatedFileSizeWithUriFallback(zip, spineEntry.href, &itemSize)) {
+          LOG_ERR("BMC", "Warning: Could not get size for spine item: %s", spineEntry.href.c_str());
         }
       }
     } else {
-      const std::string path = FsHelpers::normalisePath(spineEntry.href);
-      if (!zip.getInflatedFileSize(path.c_str(), &itemSize)) {
-        LOG_ERR("BMC", "Warning: Could not get size for spine item: %s", path.c_str());
+      if (!getInflatedFileSizeWithUriFallback(zip, spineEntry.href, &itemSize)) {
+        LOG_ERR("BMC", "Warning: Could not get size for spine item: %s", spineEntry.href.c_str());
       }
     }
 

@@ -2,7 +2,7 @@
 
 ## `book.bin`
 
-### Version 5
+### Version 8
 
 ImHex Pattern:
 
@@ -12,7 +12,7 @@ import std.string;
 import std.core;
 
 // === Configuration ===
-#define EXPECTED_VERSION 5
+#define EXPECTED_VERSION 8
 #define MAX_STRING_LENGTH 65535
 
 // === String Structure ===

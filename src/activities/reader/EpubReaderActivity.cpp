@@ -1115,7 +1115,7 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
   std::string anchor;
   const auto hashPos = hrefStr.find('#');
   if (hashPos != std::string::npos && hashPos + 1 < hrefStr.size()) {
-    anchor = hrefStr.substr(hashPos + 1);
+    anchor = FsHelpers::decodeUriEscapes(hrefStr.substr(hashPos + 1));
   }
 
   // Check for same-file anchor reference (#anchor only)
